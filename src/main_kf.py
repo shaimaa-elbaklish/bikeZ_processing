@@ -40,7 +40,6 @@ code= 'E'
 filename = f"trajectories_bikes_{date}_{intersection}_{time_slot}_{code}-1.csv"
 df = pd.read_csv(BikeZ_Config.data_root + f"{date}/{intersection}/{filename}")
 # COLUMNS: ['veh_id', 'veh_type', 'speed(km/h)', 'a(m/s2)', 'time(s)', 'X_2056(m)', 'Y_2056(m)', 'longitude', 'latitude', 'datetime']
-df = df.sort_values(by=['veh_id', 'time(s)'], ascending=True)
 # add a column as a missing flag
 df['missing'] = (df['speed(km/h)'] == -1)
 # print(df.loc[df['missing'], 'veh_id'].unique())
@@ -57,6 +56,18 @@ df = df.rename(columns={
 })
 df['x'] = df['x_act'] - BikeZ_Config.X_2056_Bounds[0]
 df['y'] = df['y_act'] - BikeZ_Config.Y_2056_Bounds[0]
+df['datetime'] = pd.to_datetime(df['datetime'], format='ISO8601')
+
+# Fix time = -1 issues
+# Find ref. datetime (i.e. datetime when time == 0)
+ref_datetime = df.loc[df['time'] == 0, 'datetime'].unique()[0]
+fix_df = df[df['time'] == -1]
+# print(fix_df['veh_id'].unique()) # [35, 86, 101, 110, 146]
+for idx, _ in fix_df.iterrows():
+    df.loc[idx, 'time'] = np.round((df.loc[idx, 'datetime'] - ref_datetime).total_seconds(), decimals=2)
+del fix_df
+gc.collect()
+df = df.sort_values(by=['veh_id', 'time'], ascending=True)
 
 # oveview of trajectories
 fig, axs = plt.subplots(1, 2, figsize=(8, 4))
@@ -80,6 +91,7 @@ fig.tight_layout()
 # #############################################################################
 sel_bike_id = 22
 bike_df = df[(~df['missing']) & (df['veh_id'] == sel_bike_id)]
+bike_df = bike_df.sort_values(by='time', ascending=True)
 
 Qk = np.diag([1.0, 1.0, 1.0, 1.0, 1.0])  # covariance matrix of error of state
 Rk = np.diag([1.0, 1.0, 1.0, 1.0, 1.0])  # covariance matrix of error of output
@@ -112,12 +124,11 @@ plt.close('all')
 # MAIN: Perform EKF for all bicycles
 # #############################################################################
 filt_df = None
-# unique_ids = [1, 2, 5, 8, 20, 80, 22, 72, 152, 161] # test
+# unique_ids = [35, 86, 22, 72, 152, 161] # test
 unique_ids = df['veh_id'].unique()
 for veh_id in tqdm(unique_ids, desc="Processing EKF on Bicycles"):
-    if veh_id in [35, 86, 101, 110, 146]:
-        continue
     veh_df = df[df['veh_id'] == veh_id].copy()
+    veh_df = veh_df.sort_values(by='time', ascending=True)
     first_frame = int(veh_df['time'].iloc[0]*BikeZ_Config.fps)
     last_frame = int(veh_df['time'].iloc[-1]*BikeZ_Config.fps)
     filt_bike_df = calculate_kalman_filtered_trajectory(
