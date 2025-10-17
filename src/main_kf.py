@@ -58,7 +58,7 @@ df = df.rename(columns={
 df['x'] = df['x_act'] - BikeZ_Config.X_2056_Bounds[0]
 df['y'] = df['y_act'] - BikeZ_Config.Y_2056_Bounds[0]
 
-# oveview of trajectories
+# overview of trajectories
 fig, axs = plt.subplots(1, 2, figsize=(8, 4))
 grouped = df[~df['missing']].groupby(by='veh_id')
 for veh_id, veh_df in grouped:
