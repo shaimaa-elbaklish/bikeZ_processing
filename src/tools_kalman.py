@@ -11,221 +11,44 @@ Submitted to:   JOURNAL
 # #############################################################################
 # IMPORTS
 # #############################################################################
+import gc
 import sys
-import pytz
+import warnings
+warnings.simplefilter('ignore', RuntimeWarning) # Ignore all RuntimeWarnings
 
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 
 from scipy.optimize import minimize
 
-from _constants import SPEED_ESTIMATION_HORIZON
 from _constants import SKIP_KALMAN_FILTERING_MAX_GAP
-from _constants import KALMAN_INITIAL_ESTIMATION_WINDOW_LENGTH
-from _constants import KALMAN_TRANSIENT_PERIOD
-from _constants import POST_FILTERING_KERNEL_B
-from tools_filtering import calculate_features, boundAnglePositive, _filter_velocity
+from tools_filtering import calculate_features, boundAnglePositive
 
 # #############################################################################
-# CONSTANTS
+# METHODS
 # #############################################################################
-C = np.asarray([[1,0,0,0,0], [0,1,0,0,0], [0,0,1,0,0], [0,0,0,1,0], [0,0,0,0,1]]) # system output matrix
-I = np.eye(5)
-sel_columns = ["y_1_m", "y_2_m", "y_3_m", "y_4_m", "y_5_m"]
-
-# #############################################################################
-# METHODS: Extended Kalman Filter
-# #############################################################################
-def calculate_kalman_filtered_trajectory(veh_df: pd.DataFrame, Qk: np.ndarray, Rk:np.ndarray, 
-                                         first_frame: int, last_frame: int, fps: float = 25.0):
-    feat_veh_df = calculate_features(veh_df, fps)
-    kf_traj_forward = _kalman_filter(feat_veh_df, Qk, Rk, first_frame, last_frame, fps, rev=False)
-    kf_traj_backward = _kalman_filter(feat_veh_df, Qk, Rk, first_frame, last_frame, fps, rev=True)
-    kf_traj_rts = kf_traj_forward.copy()
-    kf_traj_rts = kf_traj_rts.merge(kf_traj_backward, on="frame_nr", how="left")
-    kf_traj_rts["time"] = kf_traj_rts["time_x"]
-    kf_traj_rts["measurement_available"] = kf_traj_rts["measurement_available_x"]  
-    kf_traj_rts = _determine_trajectory_fusion_weights(kf_traj_rts)
-    kf_traj_rts["weight_sum"] = kf_traj_rts[["weight_forward", "weight_backward"]].sum(axis=1)
-    kf_traj_rts["weight_forward_final"] = (kf_traj_rts["weight_sum"]-kf_traj_rts["weight_forward"])/kf_traj_rts["weight_sum"]
-    kf_traj_rts["weight_backward_final"] = (kf_traj_rts["weight_sum"]-kf_traj_rts["weight_backward"])/kf_traj_rts["weight_sum"]
-    for col in ["x", "y", "state1", "state2", "state3", "state4", "state5"]:
-            kf_traj_rts[col] = (kf_traj_rts[col+"_x"]*kf_traj_rts["weight_forward_final"]+kf_traj_rts[col+"_y"]*kf_traj_rts["weight_backward_final"])
-            kf_traj_rts[col] = kf_traj_rts[col].rolling(window=POST_FILTERING_KERNEL_B, center=True, min_periods=1).mean()
-    kf_traj_rts = kf_traj_rts[["frame_nr", "time", "measurement_available", "x", "y", "state1", "state2", "state3", "state4", "state5"]]
-    
-    # estimate and filter speed
-    kf_traj_rts['velocity_x'] = kf_traj_rts['x'].diff().shift(-1).fillna(0) * fps
-    kf_traj_rts['velocity_y'] = kf_traj_rts['y'].diff().shift(-1).fillna(0) * fps
-    kf_traj_rts['velocity_cartesian'] = np.sqrt(kf_traj_rts['velocity_x']**2 + kf_traj_rts['velocity_y']**2)
-    kf_traj_rts = _filter_velocity(kf_traj_rts)
-    kf_traj_rts['speed'] = kf_traj_rts['velocity_cartesian'] * 3.6
-    kf_traj_rts = kf_traj_rts.drop(columns=['velocity_x', 'velocity_y', 'velocity_cartesian'])
-    return kf_traj_rts
-    
-
-def _kalman_filter(veh_df: pd.DataFrame, Qk: np.ndarray, Rk:np.ndarray,
-                   first_frame: int, last_frame: int, fps: float = 25.0,
-                   rev: bool = False):
-    # Determine Initial Estimate of state x0 and covariance P0
-    x_0, P_0 = _get_initial_estimate(veh_df, rev)
-    kalman_data = _generate_kalman_trajectory_data(veh_df, rev)
-    kalman_data = kalman_data.dropna()
-    last_x_p = x_0.copy()
-    last_x_c = x_0.copy()
-    last_P_p = P_0.copy()
-    last_P_c = P_0.copy()
-    last_u = None
-    state_kalman = []
-    last_frame_had_measurement=False
-    a = first_frame
-    b = last_frame
-    c = 1
-    if rev:
-        a = last_frame
-        b = first_frame
-        c = -1
-    skip_counter = 0
-    # For each Frame conduct Kalman Filter Step
-    for frame_nr in range(a, b, c):   
-        # Skip Kalman Iterations if very large gap was filled by inference approach
-        if skip_counter > 0:
-            skip_counter -= 1
-            continue
-        time = frame_nr*(1/fps)
-        # Determine measurement availability
-        measurement_available = len(kalman_data[kalman_data["frame_nr"]==frame_nr])==1
-        if not rev:
-            next_available_frame = _determine_next_available_frame(kalman_data, frame_nr+1, b, c)
-        else:
-            next_available_frame = _determine_next_available_frame(kalman_data, frame_nr-1, b, c)
-        # Assess whether observation gap to large, whether too apply inference approach
-        if measurement_available:
-            if next_available_frame!=-1 and abs(next_available_frame - frame_nr) >= SKIP_KALMAN_FILTERING_MAX_GAP:
-                # skip following frames
-                if not rev:
-                    skip_counter = next_available_frame - frame_nr - 1
-                else:
-                    skip_counter = frame_nr - next_available_frame - 1
-                # Determine Speed and Angular Velocity based on optimization, so that arc hits next observation best
-                target = np.asarray(kalman_data[kalman_data["frame_nr"]==next_available_frame][[*sel_columns]].iloc[0])                 
-                x_initial_guess = [last_x_p[3], last_x_p[4]]
-                res = minimize(_to_optimize_function, x_initial_guess, method="nelder-mead",
-                               args=(last_x_p, target, frame_nr, next_available_frame, c, True, fps),
-                               # (x, state_start, state_target, frame_start, frame_end, frame_steps, crit)
-                               options={'xatol': 1e-8, 'disp': False})
-                last_x_p[3] = res.x[0]
-                last_x_p[4] = res.x[1]
-                x_initial_guess = [last_x_p[3], last_x_p[4]]
-                res = minimize(_to_optimize_function, x_initial_guess, method="nelder-mead",
-                               args=(last_x_p, target, frame_nr, next_available_frame, c, False, fps),
-                               # (x, state_start, state_target, frame_start, frame_end, frame_steps, crit)
-                               options={'xatol': 1e-8, 'disp': False})
-                last_x_p[3] = res.x[0]
-                last_x_p[4] = res.x[1]                
-                # Fill Gaps of Series with Inference Approach
-                for frame_nr2 in range(frame_nr, next_available_frame, c):
-                    time = frame_nr2*(1/fps)
-                    # prediction step
-                    u_measured = []
-                    last_u = u_measured
-                    delta_time = 1/fps
-                    A = _get_linearized_matrix_A(last_x_p, delta_time)
-                    next_x_p = _f_func( last_x_p, u_measured, fps)
-                    next_P_p = ( A @ last_P_p @ A.T ) + Qk
-                    state_kalman.append([frame_nr2, time, 2, next_x_p[0], next_x_p[1],   next_x_p[0],next_x_p[1],next_x_p[2],next_x_p[3],next_x_p[4]   ])
-                    last_x_p = next_x_p
-                    last_P_p = next_P_p
-                continue 
- 
-        # Prediction Step
-        if measurement_available:
-            u_measured = [] 
-            last_u = u_measured
-        else:
-            u_measured = last_u
-        delta_time = 1/fps
-        if last_frame_had_measurement: 
-            A = _get_linearized_matrix_A(last_x_c, delta_time)
-            next_x_p = _f_func( last_x_c, u_measured, fps)
-            next_P_p = ( A @ last_P_c @ A.T ) + Qk
-        else:
-            A = _get_linearized_matrix_A(last_x_p, delta_time)
-            next_x_p = _f_func( last_x_p, u_measured, fps)
-            next_P_p = ( A @ last_P_p @ A.T ) + Qk
-        # Correction Step
-        if measurement_available:
-            y_measured = np.asarray(kalman_data[kalman_data["frame_nr"]==frame_nr][[*sel_columns]].iloc[0]) 
-            K_c = last_P_p @ C.T @ np.linalg.inv( C @ last_P_p @ C.T + Rk )
-            next_x_c = last_x_p + K_c @ ( y_measured - _h_func( last_x_p, u_measured ) )
-            next_P_c = (I - K_c @ C) @ last_P_c
-        # Update Data & Variables
-        if measurement_available:
-            state_kalman.append([frame_nr, time, measurement_available, next_x_c[0], next_x_c[1],   next_x_c[0],next_x_c[1],next_x_c[2],next_x_c[3],next_x_c[4]   ])
-        else:
-            state_kalman.append([frame_nr, time, measurement_available, next_x_p[0], next_x_p[1],   next_x_p[0],next_x_p[1],next_x_p[2],next_x_p[3],next_x_p[4]   ])
-        last_x_p = next_x_p
-        last_frame_had_measurement = False
-        if measurement_available:
-            last_x_c = next_x_c
-            last_P_c = next_P_c
-            last_frame_had_measurement = True
-        last_P_p = next_P_p
-    state_kalman = np.asarray(state_kalman)
-    kalman_filtered_trajectory = pd.DataFrame(state_kalman, columns=["frame_nr", "time", "measurement_available", "x", "y", "state1", "state2", "state3", "state4", "state5"])
-    return kalman_filtered_trajectory
-    
-
-def _get_initial_estimate(veh_df: pd.DataFrame, rev: bool = False):
-    if not rev:
-        cols  = ["x", "y", "angle_estimation_forward",  "v_estimation_forward",  "angle_vel_estimation_forward"]
-    else:
-        cols  = ["x", "y", "angle_estimation_backward", "v_estimation_backward", "angle_vel_estimation_backward"]
-    colsE = ["x_ma", "y_ma", "angle_estimation_forward", "v_estimation_forward", "angle_vel_estimation_forward", "x", "y", "angle_estimation_backward", "v_estimation_backward", "angle_vel_estimation_backward"]
-    # initial estimate for state
-    if not rev:
-        x_0 = [np.nanmean(veh_df[ cols[0] ].tolist()[SPEED_ESTIMATION_HORIZON:SPEED_ESTIMATION_HORIZON+KALMAN_INITIAL_ESTIMATION_WINDOW_LENGTH]), 
-               np.nanmean(veh_df[ cols[1] ].tolist()[SPEED_ESTIMATION_HORIZON:SPEED_ESTIMATION_HORIZON+KALMAN_INITIAL_ESTIMATION_WINDOW_LENGTH]),
-               np.nanmean(veh_df[ cols[2] ].tolist()[SPEED_ESTIMATION_HORIZON:SPEED_ESTIMATION_HORIZON+KALMAN_INITIAL_ESTIMATION_WINDOW_LENGTH]), 
-               np.nanmean(veh_df[ cols[3] ].tolist()[SPEED_ESTIMATION_HORIZON:SPEED_ESTIMATION_HORIZON+KALMAN_INITIAL_ESTIMATION_WINDOW_LENGTH]),
-               np.nanmean(veh_df[ cols[4] ].tolist()[SPEED_ESTIMATION_HORIZON:SPEED_ESTIMATION_HORIZON+KALMAN_INITIAL_ESTIMATION_WINDOW_LENGTH]), 
-               ]
-    else:
-        x_0 = [np.nanmean(veh_df[ cols[0] ].tolist()[-KALMAN_INITIAL_ESTIMATION_WINDOW_LENGTH-SPEED_ESTIMATION_HORIZON:-SPEED_ESTIMATION_HORIZON]), 
-               np.nanmean(veh_df[ cols[1] ].tolist()[-KALMAN_INITIAL_ESTIMATION_WINDOW_LENGTH-SPEED_ESTIMATION_HORIZON:-SPEED_ESTIMATION_HORIZON]),
-               np.nanmean(veh_df[ cols[2] ].tolist()[-KALMAN_INITIAL_ESTIMATION_WINDOW_LENGTH-SPEED_ESTIMATION_HORIZON:-SPEED_ESTIMATION_HORIZON]), 
-               np.nanmean(veh_df[ cols[3] ].tolist()[-KALMAN_INITIAL_ESTIMATION_WINDOW_LENGTH-SPEED_ESTIMATION_HORIZON:-SPEED_ESTIMATION_HORIZON]),
-               np.nanmean(veh_df[ cols[4] ].tolist()[-KALMAN_INITIAL_ESTIMATION_WINDOW_LENGTH-SPEED_ESTIMATION_HORIZON:-SPEED_ESTIMATION_HORIZON]), 
-               ]
-    # initial estimate for state error
-    state_error = veh_df[[*colsE]]
-    state_error["x_err"]  = veh_df[ colsE[0] ] - veh_df[ colsE[5] ]
-    state_error["y_err"]  = veh_df[ colsE[1] ] - veh_df[ colsE[6] ]
-    state_error["a_err"]  = veh_df[ colsE[2] ] - veh_df[ colsE[7] ]
-    state_error["v_err"]  = veh_df[ colsE[3] ] - veh_df[ colsE[8] ]
-    state_error["av_err"] = veh_df[ colsE[4] ] - veh_df[ colsE[9] ]
-    state_error = np.asarray(state_error[["x_err", "y_err", "a_err", "v_err", "av_err"]])
-    state_error_valid = np.sum(np.isnan(state_error), axis=1)
-    P_0 = np.cov(state_error[state_error_valid==0].transpose())
-    return x_0, P_0
+def _f_dyn(x, u, dt):
+    # x_arr = [x, y, v, theta]
+    # u = [accel, omega]
+    return np.array([
+        x[0] + dt*x[2]*np.cos(x[3]),
+        x[1] + dt*x[2]*np.sin(x[3]),
+        max(0, x[2] + dt*u[0]),
+        boundAnglePositive(x[3] + dt*u[1], "rad")
+    ])
 
 
-def _generate_kalman_trajectory_data(veh_df: pd.DataFrame, rev: bool =False):
-    # New Description For Kalman Filtering
-    data = veh_df.copy()
-    data["y_1_m"] = data["x"]
-    data["y_2_m"] = data["y"]
-    if not rev:
-        data["y_3_m"] = data["angle_estimation_forward"]
-        data["y_4_m"] = data["v_estimation_forward"]
-        data["y_5_m"] = data["angle_vel_estimation_forward"]
-    else:
-        data["y_3_m"] = data["angle_estimation_backward"]
-        data["y_4_m"] = data["v_estimation_backward"]
-        data["y_5_m"] = data["angle_vel_estimation_backward"]
-    data = data[["frame_nr", "time", "y_1_m", "y_2_m", "y_3_m", "y_4_m", "y_5_m"]]
-    return data
+def _A_jacobian(x, u, dt):
+    return np.array([
+        [1, 0, dt*np.cos(x[-1]), -dt*x[2]*np.sin(x[-1])],
+        [0, 1, dt*np.sin(x[-1]), dt*x[2]*np.cos(x[-1])],
+        [0, 0, 1, 0],
+        [0, 0, 0, 1]
+    ])
+
+
+def _B_jacobian(x, u, dt):
+    return np.array([[0], [0], [dt], [dt]])
 
 
 def _determine_next_available_frame(df, a, b, c):
@@ -237,70 +60,168 @@ def _determine_next_available_frame(df, a, b, c):
     return next_frame
 
 
-# Linearized Matrices 
-# system state matrix:    x+1 = f(x,u)    ->      A = df/dx
-# output state matrix:    y+1 = h(x,u)    ->      C = dh/dx
-# state = [x, y, angle,  v, angle_vel]
-# units = [m, m, rad,  m/s, rad/s]
-def _f_func(x, u, video_frames_per_second):
-    delta_time = 1/video_frames_per_second
-    x_new = [x[0] + np.cos(x[2])*x[3]*delta_time,
-             x[1] - np.sin(x[2])*x[3]*delta_time,
-             boundAnglePositive(x[2] + x[4]*delta_time, "rad"),
-             x[3],
-             x[4]]
-    return np.asarray(x_new)
+def _gap_inference_objective(x, start_state, target_state, start_input, target_input, start_frame, stop_frame, fps):
+    # pos_error, vel_error, ang_error = 0, 0, 0
+    inp_mag, inp_changes = 0, 0
+    curr_state = start_state
+    prev_input = start_input
+    for f in range(start_frame, stop_frame, 1):
+        i = f - start_frame
+        next_state = _f_dyn(curr_state, u=x[2*i:2*i+2], dt=1/fps)
+        # next_input = x[2*(i+1):2*(i+1)+2] if f < stop_frame-1 else target_input
+        # next_state = _f_dyn(curr_state, u=x, dt=1/fps)
+        
+        # interm_target = start_state + (f-start_frame+1)*(target_state - start_state)/(stop_frame - start_frame)
+        # pos_error += np.linalg.norm(next_state[:2] - interm_target[:2])
+        # vel_error += abs(next_state[-2] - interm_target[-2])
+        # ang_error += abs(next_state[-1] - interm_target[-1])        
+        inp_mag += abs(x[2*i]) + abs(x[2*i+1])
+        inp_changes += abs(x[2*i] - prev_input[0]) + abs(x[2*i+1] - prev_input[1])
+        if f == stop_frame - 1:
+            inp_changes += abs(x[2*i] - target_input[0]) + abs(x[2*i+1] - target_input[1])
+        
+        curr_state = next_state
+        prev_input = x[2*i:2*i+2]
+        
+    final_pos_error = np.linalg.norm(next_state[:2] - target_state[:2])
+    final_vel_error = abs(next_state[-2] - target_state[-2])
+    final_ang_error = abs(next_state[-1] - target_state[-1])
+    jerk_error = (fps*abs(x[0] - start_input[0]) - 10) + (fps*abs(x[-2] - target_input[0]) - 10)
+    return 10*final_pos_error + 2*final_vel_error + final_ang_error + inp_changes + 0.1*inp_mag + 10*jerk_error
+            
 
-def _h_func(x, u):
-    return np.asarray([x[0], x[1], x[2], x[3], x[4]])
-
-def _get_linearized_matrix_A(last_x_c, delta_time):
-    A = np.asarray([
-        [1,0,-np.sin(last_x_c[2])*last_x_c[3]*delta_time,+np.cos(last_x_c[2])*delta_time, 0], 
-        [0,1,-np.cos(last_x_c[2])*last_x_c[3]*delta_time,-np.sin(last_x_c[2])*delta_time, 0],
-        [0,0,1,0,delta_time],
-        [0,0,0,1,0],
-        [0,0,0,0,1]
-        ])
-    return A
-
-def _predictEvaluateGuess(state_start, state_target, frame_start, frame_end, frame_steps, vel, angle_vel, crit, video_frames_per_second):
-    last_x_p = state_start.copy()
-    last_x_p[3] = vel
-    last_x_p[4] = angle_vel
-    distance_travelled = []
-    for frame_nr in range(frame_start, frame_end, frame_steps):
-        next_x_p = _f_func( last_x_p, [], video_frames_per_second )
-        distance_travelled.append(np.linalg.norm(np.asarray([last_x_p[0], last_x_p[1]]) - np.asarray([state_target[0], state_target[1]])))    
-        last_x_p = next_x_p
-    distance_travelled.append(np.linalg.norm(np.asarray([last_x_p[0], last_x_p[1]]) - np.asarray([state_target[0], state_target[1]])))    
-    weights = np.arange(len(distance_travelled))*np.arange(len(distance_travelled))
-    weights = weights/np.sum(weights)
-    pos_actual = np.asarray([last_x_p[0], last_x_p[1]])
-    pos_target = np.asarray([state_target[0],state_target[1]])
-    angle_diff = abs(last_x_p[2]-state_target[2])
-    if crit:
-        return np.linalg.norm(pos_actual-pos_target)
-    else:
-        return 10*np.linalg.norm(pos_actual-pos_target) + angle_diff
-
-def _to_optimize_function(x, state_start, state_target, frame_start, frame_end, frame_steps, crit, video_frames_per_second):
-    return _predictEvaluateGuess(state_start, state_target, frame_start, frame_end, frame_steps, x[0], x[1], crit, video_frames_per_second)
+def _gap_inference(start_state, target_state, last_available_input, next_available_input, frame_nr, next_available_frame, fps):
+    possible_accel = (target_state[-2] - start_state[-2])/(next_available_frame - frame_nr) * fps
+    possible_ang_vel = (target_state[-1] - start_state[-1])/(next_available_frame - frame_nr) * fps
+    
+    n_vars = 2*(next_available_frame - frame_nr)
+    
+    x_initial_guess = np.asarray([[possible_accel, possible_ang_vel] for _ in range(frame_nr, next_available_frame, 1)]).flatten()
+    # x_initial_guess = np.asarray([possible_accel, possible_ang_vel])
+    bnds = ((-3, 3), (-0.5, 0.5))
+    res = minimize(_gap_inference_objective, x_initial_guess, method="nelder-mead",
+                   args=(start_state, target_state, last_available_input, next_available_input, frame_nr, next_available_frame, fps),
+                   # (x, start_state, target_state, start_input, target_input, start_frame, stop_frame, fps)
+                   options={'xatol': 1e-8, 'disp': False, 'maxiter': 800*n_vars, 'maxfev': 800*n_vars},
+                   bounds=tuple([b for _ in range(frame_nr, next_available_frame, 1) for b in bnds]),
+    )
+    # print(res)
+    
+    res_dict = {}
+    for f in range(frame_nr, next_available_frame, 1):
+        # res_dict[f] = {
+        #     'accel': res.x[0],
+        #     'ang_vel': res.x[1]
+        # }
+        res_dict[f] = {
+            'accel': res.x[2*(f-frame_nr)],
+            'ang_vel': res.x[2*(f-frame_nr)+1]
+        }
+    
+    return res_dict
 
 
-def _determine_trajectory_fusion_weights(df):
-    weights_backward = []
-    weights_forward = []
-    dat = df["measurement_available"].tolist()
-    for i in range(0, len(dat)):
-        if i<KALMAN_TRANSIENT_PERIOD:
-            weights_forward.append(10000)
+def calculate_kalman_filtered_trajectory(veh_df: pd.DataFrame, Q_t: np.ndarray, R_t: np.ndarray, 
+                                         first_frame: int, last_frame: int, fps: float = 25.0):
+    feat_veh_df = calculate_features(veh_df, fps)      
+    C_t = np.diag([1, 1, 1, 1])
+    I = np.eye(4)
+    
+    # Forward Pass
+    states_kalman = np.zeros(shape=(4, last_frame-first_frame+1))
+    states_kalman[:, 0] = feat_veh_df.loc[feat_veh_df['frame_nr']==first_frame, ['x', 'y', 'speed', 'angle_estimation']].to_numpy().flatten()
+    states_kalman[-2, 0] /= 3.6
+    states_pred = np.copy(states_kalman)
+    states_cov_kalman = np.zeros(shape=(4, 4, last_frame-first_frame+1))
+    states_cov_kalman[:, :, 0] = I
+    states_cov_pred = np.copy(states_cov_kalman)
+    accel, ang_vel, skip_counter = 0, 0, 0
+    missing_inputs = {}
+    for frame_nr in range(first_frame, last_frame, 1):
+        # Skip Kalman Iterations if very large gap was filled by inference approach
+        if skip_counter > 0:
+            skip_counter -= 1
+            continue
+        
+        i = frame_nr-first_frame
+        
+        # Determine measurement availability
+        measurement_available = len(feat_veh_df[feat_veh_df["frame_nr"]==frame_nr])==1
+        next_available_frame = _determine_next_available_frame(feat_veh_df, frame_nr+1, last_frame, 1)
+        if not measurement_available:
+            if (next_available_frame - frame_nr) <= SKIP_KALMAN_FILTERING_MAX_GAP:
+                # Impute based on prediction step only if gap is not too large
+                missing_inputs.update({frame_nr: {'accel': accel, 'ang_vel': ang_vel}})
+                A_t = _A_jacobian(states_kalman[:, i], u=[accel, ang_vel], dt=1/fps)
+                states_pred[:, i+1] = _f_dyn(states_kalman[:, i], u=[accel, ang_vel], dt=1/fps)
+                states_cov_pred[:, :, i+1] = A_t @ states_cov_kalman[:, :, i] @ A_t.T + Q_t
+                states_kalman[:, i+1] = states_pred[:, i+1]
+                states_cov_kalman[:, :, i+1] = states_cov_pred[:, :, i+1]
+                continue
+            # Get accel and omega that reach the target (i.e. next available measurement) best
+            target = feat_veh_df.loc[feat_veh_df['frame_nr']==next_available_frame, ['x', 'y', 'speed', 'angle_estimation']].to_numpy().flatten()
+            target[-2] /= 3.6 # km/h to m/s
+            target_accel = feat_veh_df.loc[feat_veh_df['frame_nr']==next_available_frame, 'a'].item()
+            target_ang_vel = feat_veh_df.loc[feat_veh_df['frame_nr']==next_available_frame, 'angle_vel_estimation'].item()
+            res = _gap_inference(states_kalman[:, i], target, np.asarray([accel, ang_vel]), np.asarray([target_accel, target_ang_vel]), frame_nr, next_available_frame, fps)
+            missing_inputs.update(res)
+            skip_counter = next_available_frame - frame_nr - 1
+            for f in range(frame_nr, next_available_frame, 1):
+                j = f - first_frame
+                accel, ang_vel = missing_inputs[f]['accel'], missing_inputs[f]['ang_vel']
+                A_t = _A_jacobian(states_kalman[:, j], u=[accel, ang_vel], dt=1/fps)
+                states_pred[:, j+1] = _f_dyn(states_kalman[:, j], u=[accel, ang_vel], dt=1/fps)
+                states_cov_pred[:, :, j+1] = A_t @ states_cov_kalman[:, :, j] @ A_t.T + Q_t
+                states_kalman[:, j+1] = states_pred[:, j+1]
+                states_cov_kalman[:, :, j+1] = states_cov_pred[:, :, j+1]
+            continue
+        
+        accel = feat_veh_df.loc[feat_veh_df['frame_nr']==frame_nr, 'a'].item()
+        ang_vel = feat_veh_df.loc[feat_veh_df['frame_nr']==frame_nr, 'angle_vel_estimation'].item()
+        A_t = _A_jacobian(states_kalman[:, i], u=[accel, ang_vel], dt=1/fps)
+        
+        states_pred[:, i+1] = _f_dyn(states_kalman[:, i], u=[accel, ang_vel], dt=1/fps)
+        states_cov_pred[:, :, i+1] = A_t @ states_cov_kalman[:, :, i] @ A_t.T + Q_t
+        
+        K_t = states_cov_pred[:, :, i+1] @ C_t.T @ np.linalg.inv(C_t @ states_cov_pred[:, :, i+1] @ C_t.T + R_t)
+        y_t = feat_veh_df.loc[feat_veh_df['frame_nr']==frame_nr, ['x', 'y', 'speed', 'angle_estimation']].to_numpy().flatten()
+        y_t[-2] /= 3.6 # km/h to m/s
+        states_kalman[:, i+1] = states_pred[:, i+1] + K_t @ (y_t - C_t @ states_pred[:, i+1])
+        states_cov_kalman[:, :, i+1] = (I - K_t @ C_t) @ states_cov_pred[:, :, i+1]
+    
+    
+    # Backward Pass
+    states_rts = np.copy(states_kalman)
+    states_cov_rts = np.copy(states_cov_kalman)
+    for frame_nr in range(last_frame-1, first_frame-1, -1):
+        i = frame_nr-first_frame
+        
+        # Determine measurement availability
+        measurement_available = len(feat_veh_df[feat_veh_df["frame_nr"]==frame_nr])==1
+        if not measurement_available:
+            accel = missing_inputs[frame_nr]['accel']
+            ang_vel = missing_inputs[frame_nr]['ang_vel']
         else:
-            weights_forward.append(1)
-        if i>len(dat)-KALMAN_TRANSIENT_PERIOD:
-            weights_backward.append(10000)
+            accel = feat_veh_df.loc[feat_veh_df['frame_nr']==frame_nr, 'a'].item()
+            ang_vel = feat_veh_df.loc[feat_veh_df['frame_nr']==frame_nr, 'angle_vel_estimation'].item()
+        A_t = _A_jacobian(states_kalman[:, i], u=[accel, ang_vel], dt=1/fps)
+        
+        K_s = states_cov_kalman[:, :, i] @ A_t.T @ np.linalg.inv(states_cov_pred[:, :, i+1])
+        states_rts[:, i] = states_kalman[:, i] + K_s @ (states_rts[:, i+1] - states_pred[:, i+1])
+        states_cov_rts[:, :, i] = states_cov_kalman[:, :, i] + K_s @ (states_cov_rts[:, :, i+1] - states_cov_pred[:, :, i+1]) @ K_s.T
+      
+    filt_veh_df = pd.DataFrame(states_rts.T, columns=['x', 'y', 'speed', 'angle'])
+    filt_veh_df['speed'] *= 3.6 # m/s to km/h 
+    filt_veh_df['frame_nr'] = np.arange(first_frame, last_frame+1, 1)
+    filt_veh_df['time'] = filt_veh_df['frame_nr'] / fps
+    filt_veh_df['cov_mat'] = [states_cov_rts[:, :, i] for i in range(states_cov_rts.shape[-1])]
+    filt_veh_df['cov_norm'] = np.linalg.norm(states_cov_rts, ord='fro', axis=(0,1))
+    filt_veh_df['a'] = -1
+    for frame_nr in range(first_frame, last_frame+1, 1):
+        measurement_available = len(feat_veh_df[feat_veh_df["frame_nr"]==frame_nr])==1
+        if measurement_available:
+            filt_veh_df.loc[filt_veh_df['frame_nr']==frame_nr, 'a'] = feat_veh_df.loc[feat_veh_df['frame_nr']==frame_nr, 'a'].item()
         else:
-            weights_backward.append(1)
-    df["weight_forward"] = weights_forward 
-    df["weight_backward"] = weights_backward
-    return df
+            filt_veh_df.loc[filt_veh_df['frame_nr']==frame_nr, 'a'] = missing_inputs[frame_nr]['accel']
+    
+    return filt_veh_df

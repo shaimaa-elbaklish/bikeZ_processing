@@ -31,8 +31,8 @@ from tools_kalman import calculate_kalman_filtered_trajectory
 # #############################################################################
 date = BikeZ_Config.avail_dates[0]
 intersection = BikeZ_Config.avail_intersections[2]
-time_slot = 'AM1'
-code= 'E'
+time_slot = 'AM2'
+code = 'E'
 
 # #############################################################################
 # MAIN
@@ -69,74 +69,45 @@ del fix_df
 gc.collect()
 df = df.sort_values(by=['veh_id', 'time'], ascending=True)
 
-# oveview of trajectories
-fig, axs = plt.subplots(1, 2, figsize=(8, 4))
-grouped = df[~df['missing']].groupby(by='veh_id')
-for veh_id, veh_df in grouped:
-    axs[0].plot(veh_df['x_act'], veh_df['y_act'], 'b')
-    axs[1].plot(veh_df['x'], veh_df['y'], 'b')
+# # oveview of trajectories
+# fig, axs = plt.subplots(1, 2, figsize=(8, 4))
+# grouped = df[~df['missing']].groupby(by='veh_id')
+# for veh_id, veh_df in grouped:
+#     axs[0].plot(veh_df['x_act'], veh_df['y_act'], 'b')
+#     axs[1].plot(veh_df['x'], veh_df['y'], 'b')
 
-axs[0].set_xlabel('X_2056 [m]')
-axs[0].set_ylabel('Y_2056 [m]')
-axs[0].set_xlim(BikeZ_Config.X_2056_Bounds)
-axs[0].set_ylim(BikeZ_Config.Y_2056_Bounds)
+# axs[0].set_xlabel('X_2056 [m]')
+# axs[0].set_ylabel('Y_2056 [m]')
+# axs[0].set_xlim(BikeZ_Config.X_2056_Bounds)
+# axs[0].set_ylim(BikeZ_Config.Y_2056_Bounds)
 
-axs[1].set_xlabel('X_2056 - X_ref [m]')
-axs[1].set_ylabel('Y_2056 - Y_ref [m]')
+# axs[1].set_xlabel('X_2056 - X_ref [m]')
+# axs[1].set_ylabel('Y_2056 - Y_ref [m]')
 
-fig.tight_layout()
-
-# #############################################################################
-# MAIN: Test EKF for a single bike with missing data
-# #############################################################################
-sel_bike_id = 22
-bike_df = df[(~df['missing']) & (df['veh_id'] == sel_bike_id)]
-bike_df = bike_df.sort_values(by='time', ascending=True)
-
-Qk = np.diag([1.0, 1.0, 1.0, 1.0, 1.0])  # covariance matrix of error of state
-Rk = np.diag([1.0, 1.0, 1.0, 1.0, 1.0])  # covariance matrix of error of output
-first_frame = int(bike_df['time'].iloc[0]*BikeZ_Config.fps)
-last_frame = int(bike_df['time'].iloc[-1]*BikeZ_Config.fps)
-filtered_bike_df = calculate_kalman_filtered_trajectory(
-    bike_df, Qk, Rk, first_frame, last_frame, fps=BikeZ_Config.fps
-)
-
-# draw individual bicycle
-fig, axs = plt.subplots(1, 2, figsize=(8, 4))
-axs[0].scatter(bike_df['x'], bike_df['y'], s=5, label='Original')
-axs[0].scatter(filtered_bike_df['x'], filtered_bike_df['y'], s=1, label='EKF')
-axs[0].set_xlabel('X_2056 - X_ref [m]')
-axs[0].set_ylabel('Y_2056 - Y_ref [m]')
-axs[0].legend()
-
-axs[1].hist(bike_df['speed'], bins=100, density=True, label='Original', alpha=0.5)
-axs[1].hist(filtered_bike_df['speed'], bins=100, density=True, label='EKF', alpha=0.5)
-axs[1].set_xlabel('Speed [km/h]')
-axs[1].set_ylabel('PDF')
-axs[1].legend()
-
-fig.tight_layout()
-
-# sys.exit(1)
-plt.close('all')
+# fig.tight_layout()
 
 # #############################################################################
 # MAIN: Perform EKF for all bicycles
 # #############################################################################
+Qk = np.diag([1.0, 1.0, 10.0, 10.0])  # covariance matrix of error of state
+Rk = np.diag([5.0, 5.0, 1.0, 1.0])   # covariance matrix of error of output
+
 filt_df = None
 # unique_ids = [35, 86, 22, 72, 152, 161] # test
 unique_ids = df['veh_id'].unique()
 for veh_id in tqdm(unique_ids, desc="Processing EKF on Bicycles"):
     veh_df = df[df['veh_id'] == veh_id].copy()
     veh_df = veh_df.sort_values(by='time', ascending=True)
-    first_frame = int(veh_df['time'].iloc[0]*BikeZ_Config.fps)
-    last_frame = int(veh_df['time'].iloc[-1]*BikeZ_Config.fps)
+    first_frame = int(np.round(veh_df['time'].iloc[0]*BikeZ_Config.fps, decimals=0))
+    last_frame = int(np.round(veh_df['time'].iloc[-1]*BikeZ_Config.fps, decimals=0))
     filt_bike_df = calculate_kalman_filtered_trajectory(
         veh_df[(~veh_df['missing'])], Qk, Rk, first_frame, last_frame, fps=BikeZ_Config.fps
     )
-    filt_bike_df = filt_bike_df[['time', 'x', 'y', 'speed']]
-    filt_bike_df = filt_bike_df.rename(columns={'x': 'x_ekf', 'y': 'y_ekf', 'speed': 'speed_ekf'})
-    veh_df = veh_df.merge(filt_bike_df, on=['time'], how='left')
+    filt_bike_df = filt_bike_df[['frame_nr', 'x', 'y', 'speed', 'angle']]
+    filt_bike_df = filt_bike_df.rename(columns={'x': 'x_ekf', 'y': 'y_ekf', 'speed': 'speed_ekf', 'angle': 'angle_ekf'})
+    veh_df['frame_nr'] = np.round(veh_df['time']*BikeZ_Config.fps, decimals=0)
+    veh_df['frame_nr'] = veh_df['frame_nr'].astype(int)
+    veh_df = veh_df.merge(filt_bike_df, on=['frame_nr'], how='left')    
     if filt_df is None:
         filt_df = veh_df.copy()
     else:
@@ -147,13 +118,19 @@ filename = f"trajectories_bikes_{date}_{intersection}_{time_slot}_{code}-1-ekf.c
 filt_df.to_csv(BikeZ_Config.data_root + f"{date}/{intersection}/{filename}", index=False)
 
 # oveview of trajectories
+# unique_ids = [22, 72, 152, 161]
 fig, axs = plt.subplots(1, 2, figsize=(8, 4))
 for veh_id in unique_ids:
-    veh_df = df[(~df['missing']) & (df['veh_id'] == veh_id)]
+    veh_df = df[(df['veh_id'] == veh_id)].copy() # (~df['missing']) & 
+    veh_df.loc[veh_df['missing'], 'x'] = pd.NA
+    veh_df.loc[veh_df['missing'], 'y'] = pd.NA
     # axs[0].scatter(veh_df['x'], veh_df['y'], s=1, color='b')
     axs[0].plot(veh_df['x'], veh_df['y'], color='b')
     
     veh_df = filt_df[filt_df['veh_id'] == veh_id]
+    if veh_df[['x_ekf', 'y_ekf', 'speed_ekf', 'angle_ekf']].isna().any().any():
+        print(veh_id)
+        sys.exit(1)
     # axs[1].scatter(veh_df['x_ekf'], veh_df['y_ekf'], s=1, color='b')
     axs[1].plot(veh_df['x_ekf'], veh_df['y_ekf'], color='b')
 
@@ -172,11 +149,11 @@ axs[1].set_title('EKF')
 fig.tight_layout()
 
 # Get some statistics
-mae_x = np.mean(abs(filt_df.loc[(~filt_df['missing']), 'x'] - filt_df.loc[(~filt_df['missing']), 'x_ekf']))
-mae_y = np.mean(abs(filt_df.loc[(~filt_df['missing']), 'y'] - filt_df.loc[(~filt_df['missing']), 'y_ekf']))
-mae_v = np.mean(abs(filt_df.loc[(~filt_df['missing']), 'speed'] - filt_df.loc[(~filt_df['missing']), 'speed_ekf']))
+mae_x = np.nanmean(abs(filt_df.loc[(~filt_df['missing']), 'x'] - filt_df.loc[(~filt_df['missing']), 'x_ekf']))
+mae_y = np.nanmean(abs(filt_df.loc[(~filt_df['missing']), 'y'] - filt_df.loc[(~filt_df['missing']), 'y_ekf']))
+mae_v = np.nanmean(abs(filt_df.loc[(~filt_df['missing']), 'speed'] - filt_df.loc[(~filt_df['missing']), 'speed_ekf']))
     
-rmse_x = np.sqrt(np.mean(np.square(filt_df.loc[(~filt_df['missing']), 'x'] - filt_df.loc[(~filt_df['missing']), 'x_ekf'])))
-rmse_y = np.sqrt(np.mean(np.square(filt_df.loc[(~filt_df['missing']), 'y'] - filt_df.loc[(~filt_df['missing']), 'y_ekf'])))
-rmse_v = np.sqrt(np.mean(np.square(filt_df.loc[(~filt_df['missing']), 'speed'] - filt_df.loc[(~filt_df['missing']), 'speed_ekf'])))
+rmse_x = np.sqrt(np.nanmean(np.square(filt_df.loc[(~filt_df['missing']), 'x'] - filt_df.loc[(~filt_df['missing']), 'x_ekf'])))
+rmse_y = np.sqrt(np.nanmean(np.square(filt_df.loc[(~filt_df['missing']), 'y'] - filt_df.loc[(~filt_df['missing']), 'y_ekf'])))
+rmse_v = np.sqrt(np.nanmean(np.square(filt_df.loc[(~filt_df['missing']), 'speed'] - filt_df.loc[(~filt_df['missing']), 'speed_ekf'])))
 
