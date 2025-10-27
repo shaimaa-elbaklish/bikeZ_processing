@@ -32,14 +32,14 @@ import _constants as cs
 # FUNCTIONS
 ###############################################################################
 def extract_roadway_centerline(dataset: str):
-    if dataset != "TUMDOT":
+    if dataset != "BIKEZ":
         raise NotImplementedError()
     
     tags = {"highway": True}
-    gdf = ox.features.features_from_place(cs.TUMDOT_OSM_PLACE, tags=tags)
+    gdf = ox.features.features_from_place(cs.BIKEZ_OSM_PLACE, tags=tags)
 
     # Filter for road name
-    gdf = gdf[gdf['name'] == cs.TUMDOT_OSM_ROAD]
+    gdf = gdf[gdf['name'] == cs.BIKEZ_OSM_ROAD]
 
     # Optional: filter to LineStrings and main road types only
     main_road_types = ['primary', 'secondary', 'tertiary', 'residential', 'unclassified']
