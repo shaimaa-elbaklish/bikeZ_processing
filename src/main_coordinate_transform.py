@@ -135,7 +135,7 @@ gdf_main = ox.features.features_from_place(place, tags=tags)
 
 
 # Filter for road name
-road_name = "Kasernenstrasse"
+road_name = "Kasernenstrasse" 
 gdf = gdf_main[gdf_main['name'] == road_name]
 
 # Optional: filter to LineStrings only
@@ -186,8 +186,18 @@ folium.Marker(
     icon=folium.Icon(color='black', icon='play')
 ).add_to(m)
 
-left_branch = centerline_coords_list[14] + centerline_coords_list[0] + centerline_coords_list[3] + centerline_coords_list[9]
+left_branch = []
+for i in [14, 0, 3, 9]:
+    if len(left_branch) == 0:
+        left_branch = centerline_coords_list[i]
+        continue
+    if left_branch[-1] == centerline_coords_list[i][0]:
+        left_branch = left_branch + centerline_coords_list[i][1:]
+    else:
+        left_branch = left_branch + centerline_coords_list[i]
+# left_branch = centerline_coords_list[14] + centerline_coords_list[0] + centerline_coords_list[3] + centerline_coords_list[9]
 right_branch = centerline_coords_list[4]
+
 folium.PolyLine(
     locations=left_branch,
     color='pink',
@@ -329,15 +339,6 @@ def extract_roadway_centerline(centerline_latlon_coords: list):
     xy2056_centerline_coords = list(xy2056_centerline.coords)
 
     x, y = zip(*xy2056_centerline_coords)
-    x_off, y_off = x-BikeZ_Config.X_2056_Bounds[0], y-BikeZ_Config.Y_2056_Bounds[0]
-    print(len(x), len(set(x)))
-    bike_id = 1
-    bike_df = df[(df["veh_id"] == bike_id)].copy()
-    plt.plot(x, y, 'o-')
-    plt.plot(bike_df['x_act_ekf'], bike_df['y_act_ekf'])
-    plt.axis('equal')
-    plt.show()
-    # sys.exit(1)
     tck, u = splprep([x, y], s=0)
     unew = np.linspace(0, 1, num=500)
     spline_points = np.array(splev(unew, tck)).T  # shape (N, 2)
@@ -373,7 +374,7 @@ folium.PolyLine(
 ).add_to(m)
 
 m.save(f"../maps/trajectories_map_{date}_{intersection}_{time_slot}_{code}_single.html")
-sys.exit(1)
+
 
 tck, unew, cum_dist = extract_roadway_centerline(left_branch)
 roadway_out = bike_df.apply(lambda row: convert_xy2056_to_roadway_coordinates([row['x_act_ekf'], row['y_act_ekf']], tck, unew, cum_dist), axis=1)
@@ -394,13 +395,43 @@ bike_df["Speed_Longitudinal"] = bike_df.apply(lambda row: np.dot(row["velocity_g
 bike_df["Speed_Lateral"] = bike_df.apply(lambda row: np.dot(row["velocity_global"], row["Spline_Normal"]), axis=1)
 bike_df["Accel_Longitudinal"] = bike_df.apply(lambda row: np.dot(row["acceleration_global"], row["Spline_Tangent"]), axis=1)
 bike_df["Accel_Lateral"] = bike_df.apply(lambda row: np.dot(row["acceleration_global"], row["Spline_Normal"]), axis=1)    
-
-
-
+# Note where positive directions are!!
+# Positive Longitudinal: North to South
+# Positive Lateral: towards East
 
 plt.figure()
 plt.plot(bike_df["Position_Longitudinal"], bike_df["Position_Lateral"])
-# plt.ylim([-8, 8])
 plt.xlabel("Road-aligned x coordinate (longitudinal distance)")
 plt.ylabel("Normal y coordinate (lateral offset)")
+
+plt.figure()
+plt.plot(bike_df["time"], bike_df["Speed_Longitudinal"], label='Longitudinal')
+plt.plot(bike_df["time"], bike_df["Speed_Lateral"], label='Lateral')
+plt.plot(bike_df["time"], bike_df["speed_ekf"], label='Total', color='black', linestyle='dashed', alpha=0.5)
+plt.ylabel("Speed [km/h]")
+plt.xlabel("Time [s]")
+plt.legend()
+
+plt.figure()
+plt.plot(bike_df["time"], bike_df["Accel_Longitudinal"], label='Longitudinal')
+plt.plot(bike_df["time"], bike_df["Accel_Lateral"], label='Lateral')
+plt.plot(bike_df["time"], bike_df["a"], label='Total', color='black', linestyle='dashed', alpha=0.5)
+plt.ylabel("Acceleration [m/s$^2$]")
+plt.xlabel("Time [s]")
+plt.legend()
+plt.show()
+
+xy2056_out = bike_df.apply(lambda row: convert_roadway_to_xy2056_coordinates(row['Position_Longitudinal'], row['Position_Lateral'], tck, unew, cum_dist), axis=1)
+bike_df['x_2056_recompute'] = xy2056_out.apply(lambda x: np.round(x[0], decimals=4))
+bike_df['y_2056_recompute'] = xy2056_out.apply(lambda x: np.round(x[1], decimals=4))
+
+print(f"MAE for UTM x-coordinate recomputation: {np.mean(np.abs(bike_df['x_act_ekf'] - bike_df['x_2056_recompute'])):.6f} m")
+print(f"MAE for UTM y-coordinate recomputation: {np.mean(np.abs(bike_df['y_act_ekf'] - bike_df['y_2056_recompute'])):.6f} m")
+
+plt.figure()
+plt.plot(bike_df["x_act_ekf"], bike_df["y_act_ekf"], label='EKF')
+plt.plot(bike_df["x_2056_recompute"], bike_df["y_2056_recompute"], label='Recompute')
+plt.xlabel("X_2056")
+plt.ylabel("Y_2056")
+plt.legend()
 plt.show()
