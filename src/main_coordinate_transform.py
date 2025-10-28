@@ -118,7 +118,7 @@ m.save(f"../maps/trajectories_map_{date}_{intersection}_{time_slot}_{code}.html"
 # sys.exit(1)
 
 ###############################################################################
-# MAIN: Extract centerline of Rheinstrasse
+# MAIN: Extract centerline of All involved streets
 ###############################################################################
 import osmnx as ox
 from functools import partial
@@ -305,3 +305,102 @@ folium.PolyLine(
 
 
 m.save(f"../maps/trajectories_map_{date}_{intersection}_{time_slot}_{code}.html")
+
+
+###############################################################################
+# MAIN: Coordinate Transformation
+###############################################################################
+import pyproj
+from shapely.geometry import LineString
+
+from tools_coordinateTransform import project_point_onto_spline
+from tools_coordinateTransform import convert_xy2056_to_roadway_coordinates
+from tools_coordinateTransform import convert_roadway_to_xy2056_coordinates
+
+
+def extract_roadway_centerline(centerline_latlon_coords: list):
+    # Convert list of (lat, lon) into LineString(lon, lat)
+    merged_centerline = LineString([(lon, lat) for lat, lon in centerline_latlon_coords])
+    
+    transformer = Transformer.from_crs("EPSG:4326", "EPSG:2056", always_xy=True)
+    project = lambda x, y, z=None: transformer.transform(x, y)
+
+    xy2056_centerline = transform(project, merged_centerline)
+    xy2056_centerline_coords = list(xy2056_centerline.coords)
+
+    x, y = zip(*xy2056_centerline_coords)
+    x_off, y_off = x-BikeZ_Config.X_2056_Bounds[0], y-BikeZ_Config.Y_2056_Bounds[0]
+    print(len(x), len(set(x)))
+    bike_id = 1
+    bike_df = df[(df["veh_id"] == bike_id)].copy()
+    plt.plot(x, y, 'o-')
+    plt.plot(bike_df['x_act_ekf'], bike_df['y_act_ekf'])
+    plt.axis('equal')
+    plt.show()
+    # sys.exit(1)
+    tck, u = splprep([x, y], s=0)
+    unew = np.linspace(0, 1, num=500)
+    spline_points = np.array(splev(unew, tck)).T  # shape (N, 2)
+
+    # Compute cumulative distances along spline
+    diffs = np.diff(spline_points, axis=0)
+    dists = np.sqrt((diffs ** 2).sum(axis=1))
+    cum_dist = np.insert(np.cumsum(dists), 0, 0)  # length N
+
+    return tck, unew, cum_dist
+
+
+m = folium.Map(location=[center_lat, center_lon], zoom_start=20)
+
+# Plot trajectories on map
+bike_id = 1
+bike_df = df[(df["veh_id"] == bike_id)].copy()
+folium.PolyLine(
+    locations=bike_df[['lat_ekf', 'lon_ekf']].values.tolist(), 
+    color="blue", 
+    weight=3, 
+    opacity=0.8,
+    tooltip=f"Bicycle {bike_id}"
+).add_to(m)
+
+folium.PolyLine(
+    locations=left_branch,
+    color='pink',
+    weight=5,
+    opacity=0.8,
+    dash_array="10, 20",
+    tooltip="Kasernenstrasse Centerline (LEFT)"
+).add_to(m)
+
+m.save(f"../maps/trajectories_map_{date}_{intersection}_{time_slot}_{code}_single.html")
+sys.exit(1)
+
+tck, unew, cum_dist = extract_roadway_centerline(left_branch)
+roadway_out = bike_df.apply(lambda row: convert_xy2056_to_roadway_coordinates([row['x_act_ekf'], row['y_act_ekf']], tck, unew, cum_dist), axis=1)
+bike_df["Position_Longitudinal"] = roadway_out.apply(lambda x: x[3])
+bike_df["Position_Lateral"] = roadway_out.apply(lambda x: x[4])
+bike_df["Spline_Param"] = roadway_out.apply(lambda x: x[0])
+bike_df["Spline_Tangent"] = roadway_out.apply(lambda x: x[1])
+bike_df["Spline_Normal"] = roadway_out.apply(lambda x: x[2])
+# t_star, tangent, normal, s, d
+
+bike_df['velocity_x'] = bike_df['speed_ekf'] * np.cos(bike_df['angle_ekf'])
+bike_df['velocity_y'] = bike_df['speed_ekf'] * np.sin(bike_df['angle_ekf'])
+bike_df["velocity_global"] = bike_df[['velocity_x', 'velocity_y']].to_numpy().tolist()
+bike_df['acceleration_x'] = bike_df['a'] * np.cos(bike_df['angle_ekf'])
+bike_df['acceleration_y'] = bike_df['a'] * np.sin(bike_df['angle_ekf'])
+bike_df["acceleration_global"] = bike_df[['acceleration_x', 'acceleration_y']].to_numpy().tolist()
+bike_df["Speed_Longitudinal"] = bike_df.apply(lambda row: np.dot(row["velocity_global"], row["Spline_Tangent"]), axis=1)
+bike_df["Speed_Lateral"] = bike_df.apply(lambda row: np.dot(row["velocity_global"], row["Spline_Normal"]), axis=1)
+bike_df["Accel_Longitudinal"] = bike_df.apply(lambda row: np.dot(row["acceleration_global"], row["Spline_Tangent"]), axis=1)
+bike_df["Accel_Lateral"] = bike_df.apply(lambda row: np.dot(row["acceleration_global"], row["Spline_Normal"]), axis=1)    
+
+
+
+
+plt.figure()
+plt.plot(bike_df["Position_Longitudinal"], bike_df["Position_Lateral"])
+# plt.ylim([-8, 8])
+plt.xlabel("Road-aligned x coordinate (longitudinal distance)")
+plt.ylabel("Normal y coordinate (lateral offset)")
+plt.show()
