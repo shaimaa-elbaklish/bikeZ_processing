@@ -32,14 +32,14 @@ import _constants as cs
 # FUNCTIONS
 ###############################################################################
 def extract_roadway_centerline(dataset: str):
-    if dataset != "BIKEZ":
+    if dataset != "TUMDOT":
         raise NotImplementedError()
     
     tags = {"highway": True}
-    gdf = ox.features.features_from_place(cs.BIKEZ_OSM_PLACE, tags=tags)
+    gdf = ox.features.features_from_place(cs.TUMDOT_OSM_PLACE, tags=tags)
 
     # Filter for road name
-    gdf = gdf[gdf['name'] == cs.BIKEZ_OSM_ROAD]
+    gdf = gdf[gdf['name'] == cs.TUMDOT_OSM_ROAD]
 
     # Optional: filter to LineStrings and main road types only
     main_road_types = ['primary', 'secondary', 'tertiary', 'residential', 'unclassified']
@@ -50,8 +50,8 @@ def extract_roadway_centerline(dataset: str):
   
     project = partial(
         pyproj.transform,
-        pyproj.Proj(init='epsg:4326'),       # WGS84
-        pyproj.Proj(init='epsg:32632')       # UTM 32N
+        pyproj.Proj("EPSG:4326"),   # WGS84 (lat/lon)
+        pyproj.Proj("EPSG:2056")    # Swiss CH1903+ / LV95 (x/y)
     )
 
     utm_centerline = transform(project, merged_centerline)
