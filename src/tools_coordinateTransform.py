@@ -13,7 +13,6 @@ Submitted to:   JOURNAL
 ###############################################################################
 import os
 import sys
-import utm
 import pyproj
 
 import osmnx as ox
@@ -50,8 +49,8 @@ def extract_roadway_centerline(dataset: str):
   
     project = partial(
         pyproj.transform,
-        pyproj.Proj(init='epsg:4326'),       # WGS84
-        pyproj.Proj(init='epsg:32632')       # UTM 32N
+        pyproj.Proj("EPSG:4326"),   # WGS84 (lat/lon)
+        pyproj.Proj("EPSG:2056")    # Swiss CH1903+ / LV95 (x/y)
     )
 
     utm_centerline = transform(project, merged_centerline)
@@ -78,7 +77,7 @@ def project_point_onto_spline(point, tck):
     return t_star, closest_point
 
 
-def convert_utm_to_roadway_coordinates(point, tck, unew, cum_dist):
+def convert_xy2056_to_roadway_coordinates(point, tck, unew, cum_dist):
     t_star, closest_point = project_point_onto_spline(point, tck)
     
     # Longitudinal s coordinate
@@ -97,7 +96,7 @@ def convert_utm_to_roadway_coordinates(point, tck, unew, cum_dist):
     
     return t_star, tangent, normal, s, d
 
-def convert_roadway_to_utm_coordinates(s, d, tck, unew, cum_dist):
+def convert_roadway_to_xy2056_coordinates(s, d, tck, unew, cum_dist):
     # Step 1: find t such that spline arc length is s
     f_inv = interp1d(cum_dist, unew, bounds_error=False, fill_value=(unew[0], unew[-1]))
     t = f_inv(s)

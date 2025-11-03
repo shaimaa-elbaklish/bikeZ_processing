@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html>
+<head>
+    
+    <meta http-equiv="content-type" content="text/html; charset=UTF-8" />
+    <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.3/dist/leaflet.js"></script>
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Leaflet.awesome-markers/2.0.2/leaflet.awesome-markers.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.3/dist/leaflet.css"/>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.2/dist/css/bootstrap.min.css"/>
+    <link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.0/css/bootstrap-glyphicons.css"/>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.2.0/css/all.min.css"/>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/Leaflet.awesome-markers/2.0.2/leaflet.awesome-markers.css"/>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/python-visualization/folium/folium/templates/leaflet.awesome.rotate.min.css"/>
+    
+            <meta name="viewport" content="width=device-width,
+                initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+            <style>
+                #map_8d179290a07853d5fd2937619c86b963 {
+                    position: relative;
+                    width: 100.0%;
+                    height: 100.0%;
+                    left: 0.0%;
+                    top: 0.0%;
+                }
+                .leaflet-container { font-size: 1rem; }
+            </style>
+
+            <style>html, body {
+                width: 100%;
+                height: 100%;
+                margin: 0;
+                padding: 0;
+            }
+            </style>
+
+            <style>#map {
+                position:absolute;
+                top:0;
+                bottom:0;
+                right:0;
+                left:0;
+                }
+            </style>
+
+            <script>
+                L_NO_TOUCH = false;
+                L_DISABLE_3D = false;
+            </script>
+
+        
+</head>
+<body>
+    
+    
+            <div class="folium-map" id="map_8d179290a07853d5fd2937619c86b963" ></div>
+        
+</body>
+<script>
+    
+    
+            var map_8d179290a07853d5fd2937619c86b963 = L.map(
+                "map_8d179290a07853d5fd2937619c86b963",
+                {
+                    center: [47.37651699762978, 8.534872602681153],
+                    crs: L.CRS.EPSG3857,
+                    ...{
+  "zoom": 20,
+  "zoomControl": true,
+  "preferCanvas": false,
+}
+
+                }
+            );
+            L.control.scale().addTo(map_8d179290a07853d5fd2937619c86b963);
+
+            
+
+        
+    
+            var tile_layer_cf5eab7a33c6fc49cd73f6a32c5db790 = L.tileLayer(
+                "https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg",
+                {
+  "minZoom": 0,
+  "maxZoom": 25,
+  "maxNativeZoom": 25,
+  "noWrap": false,
+  "attribution": "\u00a9 swisstopo / geo.admin.ch",
+  "detectRetina": false,
+  "tms": false,
+  "opacity": 1,
+}
+
+            );
+        
+    
+            tile_layer_cf5eab7a33c6fc49cd73f6a32c5db790.addTo(map_8d179290a07853d5fd2937619c86b963);
+        
+    
+            var tile_layer_46af47159eeb7b2c696fc40e261692b3 = L.tileLayer(
+                "https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.swissimage/default/current/3857/{z}/{x}/{y}.jpeg",
+                {
+  "minZoom": 0,
+  "maxZoom": 25,
+  "maxNativeZoom": 25,
+  "noWrap": false,
+  "attribution": "\u00a9 swisstopo / geo.admin.ch",
+  "subdomains": "abc",
+  "detectRetina": false,
+  "tms": false,
+  "opacity": 1,
+}
+
+            );
+        
+    
+            tile_layer_46af47159eeb7b2c696fc40e261692b3.addTo(map_8d179290a07853d5fd2937619c86b963);
+        
+    
+            var layer_control_a55a4462e895c452a9d2833a8661f377_layers = {
+                base_layers : {
+                    "swisstopo.pixelkarte-farbe" : tile_layer_cf5eab7a33c6fc49cd73f6a32c5db790,
+                },
+                overlays :  {
+                    "swisstopo.swissimage" : tile_layer_46af47159eeb7b2c696fc40e261692b3,
+                },
+            };
+            let layer_control_a55a4462e895c452a9d2833a8661f377 = L.control.layers(
+                layer_control_a55a4462e895c452a9d2833a8661f377_layers.base_layers,
+                layer_control_a55a4462e895c452a9d2833a8661f377_layers.overlays,
+                {
+  "position": "topright",
+  "collapsed": true,
+  "autoZIndex": true,
+}
+            ).addTo(map_8d179290a07853d5fd2937619c86b963);
+
+        
+    
+            var poly_line_96410e127a5004c7d796c5ad140ff3b8 = L.polyline(
+                [[47.37686, 8.5352006], [47.3766921, 8.5350063], [47.3766552, 8.5349436], [47.3765792, 8.534793]],
+                {"bubblingMouseEvents": true, "color": "black", "dashArray": null, "dashOffset": null, "fill": false, "fillColor": "black", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 0.8, "smoothFactor": 1.0, "stroke": true, "weight": 5}
+            ).addTo(map_8d179290a07853d5fd2937619c86b963);
+        
+    
+            poly_line_96410e127a5004c7d796c5ad140ff3b8.bindTooltip(
+                `<div>
+                     Kasernenstrasse Centerline 0
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var poly_line_037ab47130db39ca1f7048c91e879fd3 = L.polyline(
+                [[47.3753438, 8.5332364], [47.3750044, 8.5328813], [47.3748541, 8.5327311], [47.3747801, 8.5326571], [47.3746867, 8.5325738], [47.3745114, 8.5324488]],
+                {"bubblingMouseEvents": true, "color": "black", "dashArray": null, "dashOffset": null, "fill": false, "fillColor": "black", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 0.8, "smoothFactor": 1.0, "stroke": true, "weight": 5}
+            ).addTo(map_8d179290a07853d5fd2937619c86b963);
+        
+    
+            poly_line_037ab47130db39ca1f7048c91e879fd3.bindTooltip(
+                `<div>
+                     Kasernenstrasse Centerline 1
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var poly_line_e76a7c2ff56a11ab91927625be63f98f = L.polyline(
+                [[47.3775925, 8.5360006], [47.3774017, 8.5357919], [47.3769891, 8.5353416]],
+                {"bubblingMouseEvents": true, "color": "black", "dashArray": null, "dashOffset": null, "fill": false, "fillColor": "black", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 0.8, "smoothFactor": 1.0, "stroke": true, "weight": 5}
+            ).addTo(map_8d179290a07853d5fd2937619c86b963);
+        
+    
+            poly_line_e76a7c2ff56a11ab91927625be63f98f.bindTooltip(
+                `<div>
+                     Kasernenstrasse Centerline 2
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var poly_line_26d6a8749be226ab7fa09ec15e471cbc = L.polyline(
+                [[47.3765792, 8.534793], [47.3764811, 8.5345572], [47.3764624, 8.5345279]],
+                {"bubblingMouseEvents": true, "color": "black", "dashArray": null, "dashOffset": null, "fill": false, "fillColor": "black", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 0.8, "smoothFactor": 1.0, "stroke": true, "weight": 5}
+            ).addTo(map_8d179290a07853d5fd2937619c86b963);
+        
+    
+            poly_line_26d6a8749be226ab7fa09ec15e471cbc.bindTooltip(
+                `<div>
+                     Kasernenstrasse Centerline 3
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var poly_line_26fe995f78fa12bf15a33ae3e039218e = L.polyline(
+                [[47.3758747, 8.5337911], [47.3759083, 8.5339986], [47.3763305, 8.5346604], [47.3763635, 8.5347104], [47.376409, 8.5347999], [47.3764414, 8.5348795]],
+                {"bubblingMouseEvents": true, "color": "black", "dashArray": null, "dashOffset": null, "fill": false, "fillColor": "black", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 0.8, "smoothFactor": 1.0, "stroke": true, "weight": 5}
+            ).addTo(map_8d179290a07853d5fd2937619c86b963);
+        
+    
+            poly_line_26fe995f78fa12bf15a33ae3e039218e.bindTooltip(
+                `<div>
+                     Kasernenstrasse Centerline 4
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var poly_line_d1f3aa5f10b743255c02e7590d5eb5a3 = L.polyline(
+                [[47.3734022, 8.5317652], [47.3734426, 8.5318058], [47.373493, 8.5318447], [47.3737252, 8.5319703], [47.3737619, 8.5319721], [47.3738136, 8.5319637]],
+                {"bubblingMouseEvents": true, "color": "black", "dashArray": null, "dashOffset": null, "fill": false, "fillColor": "black", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 0.8, "smoothFactor": 1.0, "stroke": true, "weight": 5}
+            ).addTo(map_8d179290a07853d5fd2937619c86b963);
+        
+    
+            poly_line_d1f3aa5f10b743255c02e7590d5eb5a3.bindTooltip(
+                `<div>
+                     Kasernenstrasse Centerline 5
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var poly_line_3fcdb214129cb7ebf72279be2d312b74 = L.polyline(
+                [[47.3738136, 8.5319637], [47.3737764, 8.5318708], [47.3737538, 8.53184], [47.373614, 8.5317266], [47.3735825, 8.5317011]],
+                {"bubblingMouseEvents": true, "color": "black", "dashArray": null, "dashOffset": null, "fill": false, "fillColor": "black", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 0.8, "smoothFactor": 1.0, "stroke": true, "weight": 5}
+            ).addTo(map_8d179290a07853d5fd2937619c86b963);
+        
+    
+            poly_line_3fcdb214129cb7ebf72279be2d312b74.bindTooltip(
+                `<div>
+                     Kasernenstrasse Centerline 6
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var poly_line_d6259abe24e125078b8c11007d4b75ce = L.polyline(
+                [[47.3754194, 8.5333163], [47.3755316, 8.5334358], [47.3757671, 8.5336753], [47.375777, 8.533686], [47.3758747, 8.5337911]],
+                {"bubblingMouseEvents": true, "color": "black", "dashArray": null, "dashOffset": null, "fill": false, "fillColor": "black", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 0.8, "smoothFactor": 1.0, "stroke": true, "weight": 5}
+            ).addTo(map_8d179290a07853d5fd2937619c86b963);
+        
+    
+            poly_line_d6259abe24e125078b8c11007d4b75ce.bindTooltip(
+                `<div>
+                     Kasernenstrasse Centerline 7
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var poly_line_06918b23944b41c7fffb2fb20b1bafc2 = L.polyline(
+                [[47.3745114, 8.5324488], [47.3738136, 8.5319637]],
+                {"bubblingMouseEvents": true, "color": "black", "dashArray": null, "dashOffset": null, "fill": false, "fillColor": "black", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 0.8, "smoothFactor": 1.0, "stroke": true, "weight": 5}
+            ).addTo(map_8d179290a07853d5fd2937619c86b963);
+        
+    
+            poly_line_06918b23944b41c7fffb2fb20b1bafc2.bindTooltip(
+                `<div>
+                     Kasernenstrasse Centerline 8
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var poly_line_8092e598a63a038ed3d050bb4a6d4293 = L.polyline(
+                [[47.3764624, 8.5345279], [47.3763166, 8.5342993], [47.376054, 8.5338877], [47.3760407, 8.5338668]],
+                {"bubblingMouseEvents": true, "color": "black", "dashArray": null, "dashOffset": null, "fill": false, "fillColor": "black", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 0.8, "smoothFactor": 1.0, "stroke": true, "weight": 5}
+            ).addTo(map_8d179290a07853d5fd2937619c86b963);
+        
+    
+            poly_line_8092e598a63a038ed3d050bb4a6d4293.bindTooltip(
+                `<div>
+                     Kasernenstrasse Centerline 9
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var poly_line_41a4111e9b3c8978622cf4ab529216da = L.polyline(
+                [[47.3760407, 8.5338668], [47.3760196, 8.5338337], [47.3758974, 8.5337937], [47.3758747, 8.5337911]],
+                {"bubblingMouseEvents": true, "color": "black", "dashArray": null, "dashOffset": null, "fill": false, "fillColor": "black", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 0.8, "smoothFactor": 1.0, "stroke": true, "weight": 5}
+            ).addTo(map_8d179290a07853d5fd2937619c86b963);
+        
+    
+            poly_line_41a4111e9b3c8978622cf4ab529216da.bindTooltip(
+                `<div>
+                     Kasernenstrasse Centerline 10
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var poly_line_5ab7dd04fe1d6c20473a1b7451ccb6dd = L.polyline(
+                [[47.375368, 8.5332627], [47.3754194, 8.5333163]],
+                {"bubblingMouseEvents": true, "color": "black", "dashArray": null, "dashOffset": null, "fill": false, "fillColor": "black", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 0.8, "smoothFactor": 1.0, "stroke": true, "weight": 5}
+            ).addTo(map_8d179290a07853d5fd2937619c86b963);
+        
+    
+            poly_line_5ab7dd04fe1d6c20473a1b7451ccb6dd.bindTooltip(
+                `<div>
+                     Kasernenstrasse Centerline 11
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var poly_line_b7369ed689fccf58a001656320787994 = L.polyline(
+                [[47.3776723, 8.5360881], [47.3776288, 8.5360403], [47.3776106, 8.5360204], [47.3775925, 8.5360006]],
+                {"bubblingMouseEvents": true, "color": "black", "dashArray": null, "dashOffset": null, "fill": false, "fillColor": "black", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 0.8, "smoothFactor": 1.0, "stroke": true, "weight": 5}
+            ).addTo(map_8d179290a07853d5fd2937619c86b963);
+        
+    
+            poly_line_b7369ed689fccf58a001656320787994.bindTooltip(
+                `<div>
+                     Kasernenstrasse Centerline 12
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var poly_line_12826c7a6ab76fcbd693a041dfbe5c79 = L.polyline(
+                [[47.3753438, 8.5332364], [47.375368, 8.5332627]],
+                {"bubblingMouseEvents": true, "color": "black", "dashArray": null, "dashOffset": null, "fill": false, "fillColor": "black", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 0.8, "smoothFactor": 1.0, "stroke": true, "weight": 5}
+            ).addTo(map_8d179290a07853d5fd2937619c86b963);
+        
+    
+            poly_line_12826c7a6ab76fcbd693a041dfbe5c79.bindTooltip(
+                `<div>
+                     Kasernenstrasse Centerline 13
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var poly_line_61af981df8ca5a6ff08ac9d442873f2c = L.polyline(
+                [[47.3769891, 8.5353416], [47.37686, 8.5352006]],
+                {"bubblingMouseEvents": true, "color": "black", "dashArray": null, "dashOffset": null, "fill": false, "fillColor": "black", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 0.8, "smoothFactor": 1.0, "stroke": true, "weight": 5}
+            ).addTo(map_8d179290a07853d5fd2937619c86b963);
+        
+    
+            poly_line_61af981df8ca5a6ff08ac9d442873f2c.bindTooltip(
+                `<div>
+                     Kasernenstrasse Centerline 14
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var poly_line_ca4c85a1bbdce23f9b5e8bfdc924eb36 = L.polyline(
+                [[47.3735825, 8.5317011], [47.3735397, 8.5316691], [47.3733871, 8.5315557]],
+                {"bubblingMouseEvents": true, "color": "black", "dashArray": null, "dashOffset": null, "fill": false, "fillColor": "black", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 0.8, "smoothFactor": 1.0, "stroke": true, "weight": 5}
+            ).addTo(map_8d179290a07853d5fd2937619c86b963);
+        
+    
+            poly_line_ca4c85a1bbdce23f9b5e8bfdc924eb36.bindTooltip(
+                `<div>
+                     Kasernenstrasse Centerline 15
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var marker_5a893348aefe45004bc11917a8d29da8 = L.marker(
+                [47.3764624, 8.5345279],
+                {
+}
+            ).addTo(map_8d179290a07853d5fd2937619c86b963);
+        
+    
+            var icon_3647f7f49215eb6a9cac4d010f2bfa18 = L.AwesomeMarkers.icon(
+                {
+  "markerColor": "black",
+  "iconColor": "white",
+  "icon": "play",
+  "prefix": "glyphicon",
+  "extraClasses": "fa-rotate-0",
+}
+            );
+        
+    
+        var popup_193a6563080afc46ba62daa61fc1351c = L.popup({
+  "maxWidth": "100%",
+});
+
+        
+            
+                var html_afd847610abeb27d8f8cb43ca6dc7e0a = $(`<div id="html_afd847610abeb27d8f8cb43ca6dc7e0a" style="width: 100.0%; height: 100.0%;">Start C9</div>`)[0];
+                popup_193a6563080afc46ba62daa61fc1351c.setContent(html_afd847610abeb27d8f8cb43ca6dc7e0a);
+            
+        
+
+        marker_5a893348aefe45004bc11917a8d29da8.bindPopup(popup_193a6563080afc46ba62daa61fc1351c)
+        ;
+
+        
+    
+    
+                marker_5a893348aefe45004bc11917a8d29da8.setIcon(icon_3647f7f49215eb6a9cac4d010f2bfa18);
+            
+    
+            var marker_0878397fd0df266e958756f3bbfa8589 = L.marker(
+                [47.3769891, 8.5353416],
+                {
+}
+            ).addTo(map_8d179290a07853d5fd2937619c86b963);
+        
+    
+            var icon_4785c254e33c7f1ad8329d7bf84c5909 = L.AwesomeMarkers.icon(
+                {
+  "markerColor": "black",
+  "iconColor": "white",
+  "icon": "play",
+  "prefix": "glyphicon",
+  "extraClasses": "fa-rotate-0",
+}
+            );
+        
+    
+        var popup_b83a9d6a195e2608631fbb9c66ea3482 = L.popup({
+  "maxWidth": "100%",
+});
+
+        
+            
+                var html_27f9d00f504b2f1b678710f3bf4f44ff = $(`<div id="html_27f9d00f504b2f1b678710f3bf4f44ff" style="width: 100.0%; height: 100.0%;">Start C14</div>`)[0];
+                popup_b83a9d6a195e2608631fbb9c66ea3482.setContent(html_27f9d00f504b2f1b678710f3bf4f44ff);
+            
+        
+
+        marker_0878397fd0df266e958756f3bbfa8589.bindPopup(popup_b83a9d6a195e2608631fbb9c66ea3482)
+        ;
+
+        
+    
+    
+                marker_0878397fd0df266e958756f3bbfa8589.setIcon(icon_4785c254e33c7f1ad8329d7bf84c5909);
+            
+    
+            var poly_line_ae39c3e6953f934ab4df3fd80c41a156 = L.polyline(
+                [[47.3769891, 8.5353416], [47.37686, 8.5352006], [47.3766921, 8.5350063], [47.3766552, 8.5349436], [47.3765792, 8.534793], [47.3764811, 8.5345572], [47.3764624, 8.5345279], [47.3763166, 8.5342993], [47.376054, 8.5338877], [47.3760407, 8.5338668]],
+                {"bubblingMouseEvents": true, "color": "pink", "dashArray": "10, 20", "dashOffset": null, "fill": false, "fillColor": "pink", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 0.8, "smoothFactor": 1.0, "stroke": true, "weight": 5}
+            ).addTo(map_8d179290a07853d5fd2937619c86b963);
+        
+    
+            poly_line_ae39c3e6953f934ab4df3fd80c41a156.bindTooltip(
+                `<div>
+                     Kasernenstrasse Centerline (LEFT)
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var poly_line_b0df7e1f667b197daf3cb0b71abb59cb = L.polyline(
+                [[47.3758747, 8.5337911], [47.3759083, 8.5339986], [47.3763305, 8.5346604], [47.3763635, 8.5347104], [47.376409, 8.5347999], [47.3764414, 8.5348795]],
+                {"bubblingMouseEvents": true, "color": "pink", "dashArray": "10, 20", "dashOffset": null, "fill": false, "fillColor": "pink", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 0.8, "smoothFactor": 1.0, "stroke": true, "weight": 5}
+            ).addTo(map_8d179290a07853d5fd2937619c86b963);
+        
+    
+            poly_line_b0df7e1f667b197daf3cb0b71abb59cb.bindTooltip(
+                `<div>
+                     Kasernenstrasse Centerline (RIGHT)
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var poly_line_950f2692763d234885c36a3a8a215306 = L.polyline(
+                [[47.3802006, 8.5280359], [47.3801445, 8.5282071], [47.3801136, 8.528295], [47.3801022, 8.5283275], [47.3800596, 8.528444], [47.3799752, 8.5286598], [47.3796326, 8.5295018], [47.3795297, 8.5297489], [47.3794752, 8.5298798], [47.3793802, 8.5300836], [47.3790853, 8.5306822], [47.3790117, 8.5308225], [47.3789977, 8.5308492], [47.3789676, 8.5309064], [47.3788805, 8.5310659], [47.3787935, 8.5312216], [47.3787669, 8.5312685], [47.3787508, 8.5312969], [47.3787237, 8.5313449], [47.3786581, 8.5314599], [47.3785424, 8.5316424], [47.3783898, 8.5318851], [47.3782327, 8.5321351], [47.3781896, 8.5322137], [47.3777221, 8.5329478], [47.377585, 8.5331659], [47.3775309, 8.5332536], [47.3774805, 8.5333371], [47.3773204, 8.5335958], [47.3771776, 8.5338267], [47.3771152, 8.5339276], [47.3769447, 8.5342112], [47.376696, 8.5346038], [47.3766722, 8.5346436], [47.376652, 8.5346772], [47.3765792, 8.534793]],
+                {"bubblingMouseEvents": true, "color": "red", "dashArray": null, "dashOffset": null, "fill": false, "fillColor": "red", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 0.8, "smoothFactor": 1.0, "stroke": true, "weight": 5}
+            ).addTo(map_8d179290a07853d5fd2937619c86b963);
+        
+    
+            poly_line_950f2692763d234885c36a3a8a215306.bindTooltip(
+                `<div>
+                     Lagerstrasse Centerline
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var poly_line_e6ff7362c05544b2436245764c12c04a = L.polyline(
+                [[47.3764414, 8.5348795], [47.3764018, 8.534977], [47.3763534, 8.53508], [47.3761731, 8.5354602], [47.3761366, 8.535539], [47.3761194, 8.5355763], [47.3761036, 8.5356135], [47.3760487, 8.5357382], [47.376013, 8.5358221]],
+                {"bubblingMouseEvents": true, "color": "green", "dashArray": null, "dashOffset": null, "fill": false, "fillColor": "green", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 0.8, "smoothFactor": 1.0, "stroke": true, "weight": 5}
+            ).addTo(map_8d179290a07853d5fd2937619c86b963);
+        
+    
+            poly_line_e6ff7362c05544b2436245764c12c04a.bindTooltip(
+                `<div>
+                     Gessnerbrücke Centerline
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var poly_line_67054dc275b47a9e44b1d64847701475 = L.polyline(
+                [[47.37652099402239, 8.535015878071778], [47.37649943761888, 8.535060125544584], [47.37644016338267, 8.535179852701768], [47.376387614731975, 8.535285592904183], [47.37633198599144, 8.535400097661606], [47.37631490143783, 8.53543417920645], [47.37628555526027, 8.535492721057176], [47.37625254247364, 8.535560901507015], [47.376231304313094, 8.535605096224794], [47.376199165498925, 8.535671974096156], [47.37617705647405, 8.535717897709553]],
+                {"bubblingMouseEvents": true, "color": "orange", "dashArray": null, "dashOffset": null, "fill": false, "fillColor": "orange", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 0.8, "smoothFactor": 1.0, "stroke": true, "weight": 5}
+            ).addTo(map_8d179290a07853d5fd2937619c86b963);
+        
+    
+            poly_line_67054dc275b47a9e44b1d64847701475.bindTooltip(
+                `<div>
+                     From SwissTopo
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var poly_line_d190c120f5cea9a2f167df3c960b7c45 = L.polyline(
+                [[47.37644296975892, 8.534885466773114], [47.37645296421496, 8.534905977281296], [47.37646589622008, 8.534932727915354], [47.37648712546304, 8.534969360243348], [47.37651255778026, 8.535005196289067], [47.3765557913745, 8.535059937756603], [47.376625835509515, 8.535134688404836], [47.376654219922806, 8.53516611195729], [47.376700657736464, 8.535217521993662], [47.37678298024527, 8.53530368922028], [47.376807322902536, 8.53532802642335], [47.37682095460037, 8.53534419780633], [47.37686249089649, 8.535388311004215], [47.37689451471818, 8.535424283144629], [47.37691112585742, 8.535442281521807], [47.37694493900495, 8.535479173406888]],
+                {"bubblingMouseEvents": true, "color": "orange", "dashArray": null, "dashOffset": null, "fill": false, "fillColor": "orange", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 0.8, "smoothFactor": 1.0, "stroke": true, "weight": 5}
+            ).addTo(map_8d179290a07853d5fd2937619c86b963);
+        
+    
+            poly_line_d190c120f5cea9a2f167df3c960b7c45.bindTooltip(
+                `<div>
+                     From SwissTopo
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var polygon_1f3393be2abaaf92d9be659fff8d57db = L.polygon(
+                [[47.37631372310315, 8.534220637575283], [47.37613152255517, 8.534472909121062], [47.37621863382658, 8.534609329896345], [47.37626442595197, 8.534678689999884], [47.376311695385446, 8.534750287518198], [47.37634995506829, 8.534823906984105], [47.37635998115822, 8.534872668364775], [47.376350301460754, 8.534945301935636], [47.37629987967944, 8.535047996021612], [47.3762021786383, 8.535237999096852], [47.376167127176565, 8.535312393893841], [47.37615171469346, 8.535345105976926], [47.37605378273727, 8.535559380588884], [47.37616351092112, 8.535680819119017], [47.37620004320418, 8.535718270345447], [47.37625637207741, 8.535593186787908], [47.37632968911566, 8.535446382046533], [47.37639263452484, 8.535318785581982], [47.37646748079886, 8.53516598503545], [47.376482147462795, 8.535136270879557], [47.37650752506434, 8.53511472237077], [47.376543521447395, 8.535111048798871], [47.376579199456884, 8.535140915939655], [47.37661714035725, 8.535184954807933], [47.37672373770311, 8.535309232204236], [47.37676689635634, 8.535358962315678], [47.376846879240475, 8.535454187892173], [47.37689573201588, 8.535358964838974], [47.37694273671092, 8.535269000646919], [47.37696198630017, 8.535228379522366], [47.376984050182394, 8.535181819509557], [47.377006058557434, 8.535136365077854], [47.37692832031713, 8.53505442831283], [47.37684999953828, 8.534970714176719], [47.376769281739946, 8.53488695098679], [47.37672488307718, 8.534828654291136], [47.37671079556697, 8.534813135734794], [47.37678084739124, 8.534694511973685], [47.37683077243272, 8.534612552817128], [47.37685655050354, 8.534570810343064], [47.376997479108624, 8.534342603260585], [47.377121186831104, 8.534140573884354], [47.377168871247605, 8.53406916664087], [47.37720575494219, 8.534010126501814], [47.37711764385527, 8.533892801523264], [47.377041237117325, 8.533796768496689], [47.37696211390783, 8.53392403578888], [47.37686603599985, 8.534069493762727], [47.37679056653279, 8.53419065556458], [47.376720130066104, 8.534349882022719], [47.37667062863666, 8.534450389203457], [47.3766291684899, 8.534524576892029], [47.37660671182438, 8.534554131202249], [47.37658197543211, 8.534571278948418], [47.37655863850552, 8.534567267861803], [47.37652195445016, 8.534517075463372], [47.376487135095616, 8.534459859004901], [47.37640854113836, 8.534341710827047], [47.376351867874455, 8.534250498172005], [47.37632529545571, 8.534208459403667], [47.37631372310315, 8.534220637575283]],
+                {"bubblingMouseEvents": true, "color": "blue", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "blue", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 1.0, "smoothFactor": 1.0, "stroke": true, "weight": 3}
+            ).addTo(map_8d179290a07853d5fd2937619c86b963);
+        
+    
+            polygon_1f3393be2abaaf92d9be659fff8d57db.bindTooltip(
+                `<div>
+                     From SwissTopo
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+</script>
+</html>
