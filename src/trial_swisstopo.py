@@ -286,7 +286,7 @@ gdf_2056 = gdf.to_crs(epsg=2056)
 for _, row in gdf.iterrows():
     geom_type = row.geometry.geom_type
     if geom_type == "LineString":
-        coords = [(lat, lon) for lon, lat in row.geometry.coords]
+        coords = [(c[1], c[0]) for c in row.geometry.coords]
         folium.PolyLine(
             locations=coords,
             color='orange',
@@ -295,7 +295,7 @@ for _, row in gdf.iterrows():
             tooltip="From SwissTopo"
         ).add_to(m)
     elif geom_type == "Polygon":
-        coords = [(lat, lon) for lon, lat in row.geometry.exterior.coords]
+        coords = [(c[1], c[0]) for c in row.geometry.exterior.coords]
         folium.Polygon(
             locations=coords,
             color='blue',

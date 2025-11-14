@@ -11,23 +11,21 @@ Submitted to:   JOURNAL
 # #############################################################################
 # IMPORTS
 # #############################################################################
-import gc
 import sys
-import pytz
-import folium
+import pickle
 import warnings
 warnings.filterwarnings("ignore")
-import simplekml
 
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
 from tqdm import tqdm
-from pyproj import Transformer
+from scipy.interpolate import splprep, splev
 
 from _constants import BikeZ_Config
-from tools_kalman import calculate_kalman_filtered_trajectory
+from tools_coordinateTransform import match_bicycle_to_centerline
+from tools_coordinateTransform import convert_xy2056_to_roadway_coordinates
 
 # #############################################################################
 # CONSTANTS
@@ -37,394 +35,96 @@ intersection = BikeZ_Config.avail_intersections[2]
 time_slot = 'AM1'
 code= 'E'
 
+X_2056_offset = BikeZ_Config.X_2056_Bounds[0]
+Y_2056_offset = BikeZ_Config.Y_2056_Bounds[0]
+
+OPP_DIRECTIONS = {"N": "S", "S": "N", "W": "E", "E": "W"}
+
 # #############################################################################
-# MAIN
+# MAIN: Load data
 # #############################################################################
+# trajectories after EKF
 filename = f"trajectories_bikes_{date}_{intersection}_{time_slot}_{code}-1-ekf.csv"
 df = pd.read_csv(BikeZ_Config.data_root + f"{date}/{intersection}/{filename}")
 df = df.dropna()
+df['x_act_ekf'] = df['x_ekf'] + X_2056_offset
+df['y_act_ekf'] = df['y_ekf'] + Y_2056_offset
+center_lat, center_lon = df.loc[~df['missing'], "lat"].mean(), df.loc[~df['missing'], "lon"].mean()
 
-# # oveview of trajectories
-# fig, axs = plt.subplots(1, 2, figsize=(8, 4))
-# grouped = df[~df['missing']].groupby(by='veh_id')
-# for veh_id, veh_df in grouped:
-#     axs[0].plot(veh_df['x_act'], veh_df['y_act'], 'b')
-#     axs[1].plot(veh_df['x'], veh_df['y'], 'b')
+# centerlines
+with open(f"../data/centerlines_splines_{date}_{intersection}.pkl", "rb") as f:
+    centerlines_spl_dict = pickle.load(f)
 
-# axs[0].set_xlabel('X_2056 [m]')
-# axs[0].set_ylabel('Y_2056 [m]')
-# axs[0].set_xlim(BikeZ_Config.X_2056_Bounds)
-# axs[0].set_ylim(BikeZ_Config.Y_2056_Bounds)
+# get centerlines start and end points
+centerlines_start_end_pts_dict = {}
+for key, spline in centerlines_spl_dict.items():
+    x_start, y_start = splev(0.0, spline[0])
+    x_end, y_end = splev(1.0, spline[0])
+    centerlines_start_end_pts_dict[key] = [(x_start, y_start), (x_end, y_end)]
 
-# axs[1].set_xlabel('X_2056 - X_ref [m]')
-# axs[1].set_ylabel('Y_2056 - Y_ref [m]')
+# bike lane boundaries
+with open(f"../data/bike_lane_boundaries_splines_{date}_{intersection}.pkl", "rb") as f:
+    lane_boundaries_spl_dict = pickle.load(f) 
 
-# fig.tight_layout()
 
 # #############################################################################
-# MAIN: Visualize in maps via folium
+# MAIN: Coordinate Transform (SINGLE Bike)
 # #############################################################################
 
-# Convert from EPSG:2056 to EPSG:4326 (lat, lon)
-df['x_act_ekf'] = df['x_ekf'] + BikeZ_Config.X_2056_Bounds[0]
-df['y_act_ekf'] = df['y_ekf'] + BikeZ_Config.Y_2056_Bounds[0]
-transformer = Transformer.from_crs("EPSG:2056", "EPSG:4326", always_xy=True)
-df["lon_ekf"], df["lat_ekf"] = transformer.transform(df["x_act_ekf"].values, df["y_act_ekf"].values)
-
-# Create a folium map
-center_lat, center_lon = df["lat_ekf"].mean(), df["lon_ekf"].mean()
-# m = folium.Map(location=[center_lat, center_lon], zoom_start=20)
-m = folium.Map(location=[center_lat, center_lon], zoom_start=20, tiles=None, control_scale=True)
-# Add swisstopo basemap
-folium.TileLayer(
-    tiles="https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg",
-    attr="© swisstopo / geo.admin.ch",
-    name="swisstopo.pixelkarte-farbe",
-    overlay=False,
-    control=True,
-    max_zoom=25,
-    min_zoom=0,
-    subdomains=None,
-    tms=False
-).add_to(m)
-# Optional: add orthophoto as another layer
-folium.TileLayer(
-    tiles="https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.swissimage/default/current/3857/{z}/{x}/{y}.jpeg",
-    attr="© swisstopo / geo.admin.ch",
-    name="swisstopo.swissimage",
-    overlay=True,
-    control=True,
-    max_zoom=25
-).add_to(m)
-# Add a layer control so you can toggle
-folium.LayerControl().add_to(m)
-
-# Plot trajectories on map
-# bike_id = 1
-for bike_id in df['veh_id'].unique():
-    traj = df[(df["veh_id"] == bike_id)]
-    folium.PolyLine(
-        locations=traj[['lat_ekf', 'lon_ekf']].values.tolist(), 
-        color="blue", 
-        weight=3, 
-        opacity=0.8,
-        tooltip=f"Bicycle {bike_id}"
-    ).add_to(m)
+# check 2, 3, 5, 6, 12, 45 ??
+# Working: 1 (N_2_S, outside LB)
+# Working: 9 (stops) (N_2_S, inside LB)
+# Working: 8, 4 (N_2_W, inside LB)
+# Working: 10 (E_2_W, inside LB)
+# Working: 11 (W_2_N, outside LB)
+# Working: 16 (E_2_N, No LB)
+# Working: 13, 20, 22 (S_2_N, inside LB)
+# Working: 28, 35 (W_2_E, outside LB)
+# Working: 40 (N_2_E, outside LB)
 
 
-m.save(f"../maps/trajectories_map_{date}_{intersection}_{time_slot}_{code}.html")
-
-# # #############################################################################
-# # MAIN: Visualize in maps via Google Earth
-# # #############################################################################
-# kml = simplekml.Kml()
-# for bike_id in df['veh_id'].unique():
-#     traj = df[(df["veh_id"] == bike_id) & (~df['missing'])]
-#     coords = list(zip(traj["lon_ekf"], traj["lat_ekf"]))
-#     line = kml.newlinestring(name=f"Bicycle {bike_id}", coords=coords)
-#     line.altitudemode = simplekml.AltitudeMode.relativetoground   
-#     line.style.linestyle.color = simplekml.Color.blue
-#     line.style.linestyle.width = 4
-
-# kml.savekmz(f"../maps/trajectories_map_{date}_{intersection}_{time_slot}_{code}.kmz")
-
-# kml = simplekml.Kml()
-# for bike_id in df['veh_id'].unique():
-#     traj = df[(df["veh_id"] == bike_id) & (~df['missing'])]
-#     altitudes = [10]*len(traj) # to handle water area for Gessnerbruecke
-#     coords = list(zip(traj["lon_ekf"], traj["lat_ekf"], altitudes))
-#     line = kml.newlinestring(name=f"Bicycle {bike_id}", coords=coords)
-#     line.altitudemode = simplekml.AltitudeMode.relativetoground   
-#     line.style.linestyle.color = simplekml.Color.red
-#     line.style.linestyle.width = 4
-
-# kml.savekmz(f"../maps/trajectories_map_{date}_{intersection}_{time_slot}_{code}_elevated.kmz")
-# sys.exit(1)
-
-###############################################################################
-# MAIN: Extract centerline of All involved streets
-###############################################################################
-import osmnx as ox
-from functools import partial
-from shapely.ops import linemerge, transform, unary_union
-from scipy.interpolate import splprep, splev, interp1d
-from scipy.optimize import minimize_scalar
-
-# Define your area
-place = "Zürich, Switzerland"
-
-# Download all features with highway tag
-tags = {"highway": True}
-gdf_main = ox.features.features_from_place(place, tags=tags)
-
-
-# Filter for road name
-road_name = "Kasernenstrasse" 
-gdf = gdf_main[gdf_main['name'] == road_name]
-
-# Optional: filter to LineStrings only
-main_road_types = ['primary', 'secondary', 'tertiary', 'residential', 'unclassified', "cycleway"]
-                   # "cycleway", "path", "service", "living_street"]
-bikeable = ["yes", "designated", "permissive"]
-gdf = gdf[(gdf.geometry.type == "LineString") & (gdf['highway'].isin(main_road_types))]
-          # & (gdf['bicycle'].isin(bikeable))]
-
-# Plot
-gdf.plot()
-plt.title("Kasernenstrasse centerline")
-plt.show()
-
-# Union merges touching geometries into clusters
-merged = unary_union(list(gdf.geometry))
-
-# Keep each cluster separately
-if merged.geom_type == "MultiLineString":
-    branches = list(merged.geoms)
-else:
-    branches = [merged]
-
-centerline_coords_list = [
-    [(lat, lon) for lon, lat in branch.coords]
-    for branch in branches if branch.geom_type == "LineString"
-]
-print(f"Extracted {len(centerline_coords_list)} separate branches.")
-
-for i in range(len(centerline_coords_list)):
-    folium.PolyLine(
-        locations=centerline_coords_list[i],
-        color='black',
-        weight=5,
-        opacity=0.8,
-        tooltip=f"Kasernenstrasse Centerline {i}"
-    ).add_to(m)
-
-folium.Marker(
-    location=centerline_coords_list[9][0],
-    popup="Start C9",
-    icon=folium.Icon(color='black', icon='play')
-).add_to(m)
-
-folium.Marker(
-    location=centerline_coords_list[14][0],
-    popup="Start C14",
-    icon=folium.Icon(color='black', icon='play')
-).add_to(m)
-
-left_branch = []
-for i in [14, 0, 3, 9]:
-    if len(left_branch) == 0:
-        left_branch = centerline_coords_list[i]
-        continue
-    if left_branch[-1] == centerline_coords_list[i][0]:
-        left_branch = left_branch + centerline_coords_list[i][1:]
-    else:
-        left_branch = left_branch + centerline_coords_list[i]
-# left_branch = centerline_coords_list[14] + centerline_coords_list[0] + centerline_coords_list[3] + centerline_coords_list[9]
-right_branch = centerline_coords_list[4]
-
-folium.PolyLine(
-    locations=left_branch,
-    color='pink',
-    weight=5,
-    opacity=0.8,
-    dash_array="10, 20",
-    tooltip="Kasernenstrasse Centerline (LEFT)"
-).add_to(m)
-folium.PolyLine(
-    locations=right_branch,
-    color='pink',
-    weight=5,
-    opacity=0.8,
-    dash_array="10, 20",
-    tooltip="Kasernenstrasse Centerline (RIGHT)"
-).add_to(m)
-
-# Filter for road name
-road_name = "Lagerstrasse"
-gdf = gdf_main[gdf_main['name'] == road_name]
-
-# Optional: filter to LineStrings only
-gdf = gdf[(gdf.geometry.type == "LineString") & (gdf['highway'].isin(main_road_types))]
-          # & (gdf['bicycle'].isin(bikeable))]
-
-merged_centerline = linemerge(list(gdf.geometry))
-
-# Extract coordinates (handle both LineString and MultiLineString)
-if merged_centerline.geom_type == 'LineString':
-    coords = list(merged_centerline.coords)
-elif merged_centerline.geom_type == 'MultiLineString':
-    coords = []
-    for line in merged_centerline.geoms:
-        coords.extend(list(line.coords))
-
-# Convert (lon, lat) to (lat, lon) for folium
-centerline_coords = [(lat, lon) for lon, lat in coords]
-
-# Add centerline as a blue polyline
-folium.PolyLine(
-    locations=centerline_coords,
-    color='red',
-    weight=5,
-    opacity=0.8,
-    tooltip="Lagerstrasse Centerline"
-).add_to(m)
-
-
-# Filter for road name
-road_name = "Gessnerbrücke"
-gdf = gdf_main[gdf_main['name'] == road_name]
-
-# Optional: filter to LineStrings only
-gdf = gdf[(gdf.geometry.type == "LineString") & (gdf['highway'].isin(main_road_types))]
-          # & (gdf['bicycle'].isin(bikeable))]
-
-merged_centerline = linemerge(list(gdf.geometry))
-
-# Extract coordinates (handle both LineString and MultiLineString)
-if merged_centerline.geom_type == 'LineString':
-    coords = list(merged_centerline.coords)
-elif merged_centerline.geom_type == 'MultiLineString':
-    coords = []
-    for line in merged_centerline.geoms:
-        coords.extend(list(line.coords))
-
-# Convert (lon, lat) to (lat, lon) for folium
-centerline_coords = [(lat, lon) for lon, lat in coords]
-
-# Add centerline as a blue polyline
-folium.PolyLine(
-    locations=centerline_coords,
-    color='green',
-    weight=5,
-    opacity=0.8,
-    tooltip="Lagerstrasse Centerline"
-).add_to(m)
-
-road_name = "Stadttunnel"
-gdf = gdf_main[gdf_main['name'] == road_name]
-
-# Optional: filter to LineStrings only
-main_road_types = ['primary', 'secondary', 'tertiary', 'residential', 'unclassified', "cycleway"]
-                   # "cycleway", "path", "service", "living_street"]
-bikeable = ["yes", "designated", "permissive"]
-gdf = gdf[(gdf.geometry.type == "LineString") & (gdf['highway'].isin(main_road_types))]
-          # & (gdf['bicycle'].isin(bikeable))]
-
-# # Plot
-# gdf.plot()
-# plt.title("Kasernenstrasse centerline")
-# plt.show()
-
-merged_centerline = linemerge(list(gdf.geometry))
-
-# Extract coordinates (handle both LineString and MultiLineString)
-if merged_centerline.geom_type == 'LineString':
-    coords = list(merged_centerline.coords)
-elif merged_centerline.geom_type == 'MultiLineString':
-    coords = []
-    for line in merged_centerline.geoms:
-        coords.extend(list(line.coords))
-
-# Convert (lon, lat) to (lat, lon) for folium
-centerline_coords = [(lat, lon) for lon, lat in coords]
-
-# Add centerline as a blue polyline
-folium.PolyLine(
-    locations=centerline_coords,
-    color='orange',
-    weight=5,
-    opacity=0.8,
-    tooltip="Stadttunnel Centerline"
-).add_to(m)
-
-
-m.save(f"../maps/trajectories_map_{date}_{intersection}_{time_slot}_{code}.html")
-
-
-###############################################################################
-# MAIN: Coordinate Transformation
-###############################################################################
-import pyproj
-from shapely.geometry import LineString
-
-from tools_coordinateTransform import project_point_onto_spline
-from tools_coordinateTransform import convert_xy2056_to_roadway_coordinates
-from tools_coordinateTransform import convert_roadway_to_xy2056_coordinates
-
-
-def extract_roadway_centerline(centerline_latlon_coords: list):
-    # Convert list of (lat, lon) into LineString(lon, lat)
-    merged_centerline = LineString([(lon, lat) for lat, lon in centerline_latlon_coords])
-    
-    transformer = Transformer.from_crs("EPSG:4326", "EPSG:2056", always_xy=True)
-    project = lambda x, y, z=None: transformer.transform(x, y)
-
-    xy2056_centerline = transform(project, merged_centerline)
-    xy2056_centerline_coords = list(xy2056_centerline.coords)
-
-    x, y = zip(*xy2056_centerline_coords)
-    tck, u = splprep([x, y], s=0)
-    unew = np.linspace(0, 1, num=500)
-    spline_points = np.array(splev(unew, tck)).T  # shape (N, 2)
-
-    # Compute cumulative distances along spline
-    diffs = np.diff(spline_points, axis=0)
-    dists = np.sqrt((diffs ** 2).sum(axis=1))
-    cum_dist = np.insert(np.cumsum(dists), 0, 0)  # length N
-
-    return tck, unew, cum_dist
-
-
-# m = folium.Map(location=[center_lat, center_lon], zoom_start=20)
-m = folium.Map(location=[center_lat, center_lon], zoom_start=20, tiles=None, control_scale=True)
-# Add swisstopo basemap
-folium.TileLayer(
-    tiles="https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg",
-    attr="© swisstopo / geo.admin.ch",
-    name="swisstopo.pixelkarte-farbe",
-    overlay=False,
-    control=True,
-    max_zoom=25,
-    min_zoom=0,
-    subdomains=None,
-    tms=False
-).add_to(m)
-# Optional: add orthophoto as another layer
-folium.TileLayer(
-    tiles="https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.swissimage/default/current/3857/{z}/{x}/{y}.jpeg",
-    attr="© swisstopo / geo.admin.ch",
-    name="swisstopo.swissimage",
-    overlay=True,
-    control=True,
-    max_zoom=25
-).add_to(m)
-# Add a layer control so you can toggle
-folium.LayerControl().add_to(m)
-
-# Plot trajectories on map
-bike_id = 1
+bike_id = 9
 bike_df = df[(df["veh_id"] == bike_id)].copy()
-folium.PolyLine(
-    locations=bike_df[['lat_ekf', 'lon_ekf']].values.tolist(), 
-    color="blue", 
-    weight=3, 
-    opacity=0.8,
-    tooltip=f"Bicycle {bike_id}"
-).add_to(m)
 
-folium.PolyLine(
-    locations=left_branch,
-    color='pink',
-    weight=5,
-    opacity=0.8,
-    dash_array="10, 20",
-    tooltip="Kasernenstrasse Centerline (LEFT)"
-).add_to(m)
+# Select appropriate centerline
+centerline_id = match_bicycle_to_centerline(bike_df, centerlines_start_end_pts_dict)
+centerline_spl = centerlines_spl_dict[centerline_id]
+tck, unew, cum_dist = centerline_spl
 
-m.save(f"../maps/trajectories_map_{date}_{intersection}_{time_slot}_{code}_single.html")
+# Select appropriate lane boundaries
+centerline_start, centerline_end = centerline_id.split('_2_')
+lb_keys = [
+    f"{centerline_start}_{OPP_DIRECTIONS[centerline_start]}B",
+    f"{centerline_end}_{centerline_end}B"
+]
+lane_boundary_spl = [
+    lane_boundaries_spl_dict[lb_keys[0]],
+    lane_boundaries_spl_dict[lb_keys[1]],
+]
+lane_boundary_info = [None] * len(lane_boundary_spl)
+for i in range(len(lane_boundary_spl)):
+    if isinstance(lane_boundary_spl[i], str):
+        lane_boundary_info[i] = lane_boundary_spl[i]
+        continue
+    
+    x_start, y_start = splev(0.0, lane_boundary_spl[i][0])
+    res = convert_xy2056_to_roadway_coordinates([x_start, y_start], tck, unew, cum_dist)
+    s_start, d_start = res[3], res[4]
+    x_end, y_end = splev(1.0, lane_boundary_spl[i][0])
+    res = convert_xy2056_to_roadway_coordinates([x_end, y_end], tck, unew, cum_dist)
+    s_end, d_end = res[3], res[4]
+    side = int(np.sign(np.mean(np.sign([d_start, d_end]))))
+    
+    x_lb, y_lb = splev(np.linspace(0, 1, 100), lane_boundary_spl[i][0])
+    s_lb, d_lb = np.zeros_like(x_lb), np.zeros_like(x_lb)
+    for k in range(len(x_lb)):
+        _, _, _, s_lb[k], d_lb[k] = convert_xy2056_to_roadway_coordinates([x_lb[k], y_lb[k]], tck, unew, cum_dist)
+    d_spl, _ = splprep([s_lb, d_lb], s=0)   
+    
+    lane_boundary_info[i] = [(x_start, y_start, s_start, d_start), (x_end, y_end, s_end, d_end), side, d_spl]
 
 
-tck, unew, cum_dist = extract_roadway_centerline(left_branch)
+# Perform Transformation
 roadway_out = bike_df.apply(lambda row: convert_xy2056_to_roadway_coordinates([row['x_act_ekf'], row['y_act_ekf']], tck, unew, cum_dist), axis=1)
 bike_df["Position_Longitudinal"] = roadway_out.apply(lambda x: x[3])
 bike_df["Position_Lateral"] = roadway_out.apply(lambda x: x[4])
@@ -442,44 +142,93 @@ bike_df["acceleration_global"] = bike_df[['acceleration_x', 'acceleration_y']].t
 bike_df["Speed_Longitudinal"] = bike_df.apply(lambda row: np.dot(row["velocity_global"], row["Spline_Tangent"]), axis=1)
 bike_df["Speed_Lateral"] = bike_df.apply(lambda row: np.dot(row["velocity_global"], row["Spline_Normal"]), axis=1)
 bike_df["Accel_Longitudinal"] = bike_df.apply(lambda row: np.dot(row["acceleration_global"], row["Spline_Tangent"]), axis=1)
-bike_df["Accel_Lateral"] = bike_df.apply(lambda row: np.dot(row["acceleration_global"], row["Spline_Normal"]), axis=1)    
-# Note where positive directions are!!
-# Positive Longitudinal: North to South
-# Positive Lateral: towards East
+bike_df["Accel_Lateral"] = bike_df.apply(lambda row: np.dot(row["acceleration_global"], row["Spline_Normal"]), axis=1)
+bike_df = bike_df.drop(columns=['velocity_x', 'velocity_y', 'velocity_global',
+                                'acceleration_x', 'acceleration_y', 'acceleration_global'])
 
-plt.figure()
-plt.plot(bike_df["Position_Longitudinal"], bike_df["Position_Lateral"])
-plt.xlabel("Road-aligned x coordinate (longitudinal distance)")
-plt.ylabel("Normal y coordinate (lateral offset)")
+# Determining if bike is inside bike lane
+bike_df['In_Bike_Lane'] = pd.NA
+bike_df['Bike_Lane_ID'] = pd.NA
+tol = 0.4
+for i in range(len(lane_boundary_info)):
+    if isinstance(lane_boundary_spl[i], str):
+        continue
+    
+    side = lane_boundary_info[i][2]
+    s_start = lane_boundary_info[i][0][2]
+    s_end = lane_boundary_info[i][1][2]
+    mask = (bike_df["Position_Longitudinal"] >= s_start) & (bike_df["Position_Longitudinal"] <= s_end)
+    if not mask.any():
+        continue
+    
+    bike_df.loc[mask, 'Bike_Lane_ID'] = lb_keys[i]
+    
+    d_lb_spl = lane_boundary_info[i][3]
+    tmp_d = bike_df.loc[mask, 'Position_Lateral']
+    tmp_s = bike_df.loc[mask, 'Position_Longitudinal']
+    tmp_s = (tmp_s - s_start) / (s_end - s_start)
+    _, d_lb = splev(tmp_s, d_lb_spl)
+    
+    if side == -1:
+        bike_df.loc[mask, 'In_Bike_Lane'] = (tmp_d <= d_lb + tol)
+    elif side == 1:
+        bike_df.loc[mask, 'In_Bike_Lane'] = (tmp_d >= d_lb - tol)
+    else:
+        sys.exit(1)
+    
 
-plt.figure()
-plt.plot(bike_df["time"], bike_df["Speed_Longitudinal"], label='Longitudinal')
-plt.plot(bike_df["time"], bike_df["Speed_Lateral"], label='Lateral')
-plt.plot(bike_df["time"], bike_df["speed_ekf"], label='Total', color='black', linestyle='dashed', alpha=0.5)
-plt.ylabel("Speed [km/h]")
-plt.xlabel("Time [s]")
-plt.legend()
 
-plt.figure()
-plt.plot(bike_df["time"], bike_df["Accel_Longitudinal"], label='Longitudinal')
-plt.plot(bike_df["time"], bike_df["Accel_Lateral"], label='Lateral')
-plt.plot(bike_df["time"], bike_df["a"], label='Total', color='black', linestyle='dashed', alpha=0.5)
-plt.ylabel("Acceleration [m/s$^2$]")
-plt.xlabel("Time [s]")
-plt.legend()
-plt.show()
+# Plotting
+tol = 5
+fig, axs = plt.subplots(2, 2, figsize=(8, 8))
 
-xy2056_out = bike_df.apply(lambda row: convert_roadway_to_xy2056_coordinates(row['Position_Longitudinal'], row['Position_Lateral'], tck, unew, cum_dist), axis=1)
-bike_df['x_2056_recompute'] = xy2056_out.apply(lambda x: np.round(x[0], decimals=4))
-bike_df['y_2056_recompute'] = xy2056_out.apply(lambda x: np.round(x[1], decimals=4))
+# axs[0, 0].plot(bike_df['x_act_ekf'], bike_df['y_act_ekf'], label='Trajectory')
+mask = bike_df['In_Bike_Lane'].isna()
+axs[0, 0].scatter(bike_df.loc[mask, 'x_act_ekf'], bike_df.loc[mask, 'y_act_ekf'], label='Trajectory', alpha=0.5, color='tab:blue', s=1)
+mask = (bike_df['In_Bike_Lane'] == True)
+axs[0, 0].scatter(bike_df.loc[mask, 'x_act_ekf'], bike_df.loc[mask, 'y_act_ekf'], alpha=1, color='tab:olive', s=1)
+mask = (bike_df['In_Bike_Lane'] == False)
+axs[0, 0].scatter(bike_df.loc[mask, 'x_act_ekf'], bike_df.loc[mask, 'y_act_ekf'], alpha=0.1, color='tab:cyan', s=1)
 
-print(f"MAE for UTM x-coordinate recomputation: {np.mean(np.abs(bike_df['x_act_ekf'] - bike_df['x_2056_recompute'])):.6f} m")
-print(f"MAE for UTM y-coordinate recomputation: {np.mean(np.abs(bike_df['y_act_ekf'] - bike_df['y_2056_recompute'])):.6f} m")
+axs[0, 0].scatter(bike_df['x_act_ekf'].iloc[0], bike_df['y_act_ekf'].iloc[0], label='Start', color='black')
+axs[0, 0].scatter(bike_df['x_act_ekf'].iloc[-1], bike_df['y_act_ekf'].iloc[-1], label='End', color='red')
+x_spline, y_spline = splev(np.linspace(0, 1, 50), tck)
+axs[0, 0].plot(x_spline, y_spline, label='Centerline', linestyle='-.', color='gray')
 
-plt.figure()
-plt.plot(bike_df["x_act_ekf"], bike_df["y_act_ekf"], label='EKF')
-plt.plot(bike_df["x_2056_recompute"], bike_df["y_2056_recompute"], label='Recompute')
-plt.xlabel("X_2056")
-plt.ylabel("Y_2056")
-plt.legend()
-plt.show()
+if not isinstance(lane_boundary_spl[0], str) :
+    x_lb0, y_lb0 = splev(np.linspace(0, 1, 50), lane_boundary_spl[0][0])
+    axs[0, 0].plot(x_lb0, y_lb0, label=f'LB {lb_keys[0]}', linestyle='-.', color='red', alpha=0.5)
+if not isinstance(lane_boundary_spl[1], str) :
+    x_lb1, y_lb1 = splev(np.linspace(0, 1, 50), lane_boundary_spl[1][0])
+    axs[0, 0].plot(x_lb1, y_lb1, label=f'LB {lb_keys[1]}', linestyle='-.', color='red', alpha=0.5)
+
+axs[0, 0].set(xlabel='X_2056 [m]', ylabel='Y_2056 [m]', 
+              xlim=[bike_df['x_act_ekf'].min()-tol, bike_df['x_act_ekf'].max()+tol],
+              ylim=[bike_df['y_act_ekf'].min()-tol, bike_df['y_act_ekf'].max()+tol])
+axs[0, 0].legend()
+
+axs[0, 1].plot(bike_df["Position_Longitudinal"], bike_df["Position_Lateral"], label='Trajectory')
+axs[0, 1].scatter(bike_df['Position_Longitudinal'].iloc[0], bike_df['Position_Lateral'].iloc[0], label='Start', color='black')
+axs[0, 1].scatter(bike_df['Position_Longitudinal'].iloc[-1], bike_df['Position_Lateral'].iloc[-1], label='End', color='red')
+axs[0, 1].set(xlabel='Longitudinal Position, $s$ [m]', ylabel='Lateral Offset, $d$ [m]')
+axs[0, 1].legend()
+
+axs[1, 0].plot(bike_df['time'], bike_df["Speed_Longitudinal"], label='Longitudinal')
+axs[1, 0].plot(bike_df['time'], bike_df["Speed_Lateral"], label='Lateral')
+axs[1, 0].plot(bike_df['time'], bike_df["speed_ekf"], label='Total', alpha=0.5, linestyle='--')
+axs[1, 0].set(xlabel='Time [s]', ylabel='Speed [km/h]')
+axs[1, 0].legend()
+
+axs[1, 1].plot(bike_df['time'], bike_df["Accel_Longitudinal"], label='Longitudinal')
+axs[1, 1].plot(bike_df['time'], bike_df["Accel_Lateral"], label='Lateral')
+axs[1, 1].plot(bike_df['time'], bike_df["a"], label='Total', alpha=0.5, linestyle='--')
+axs[1, 1].set(xlabel='Time [s]', ylabel='Acceleration [m/s$^2$]')
+axs[1, 1].legend()
+
+fig.tight_layout()
+
+
+
+
+
+
