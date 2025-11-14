@@ -107,7 +107,7 @@ This is performed on Gessnerbrücke (D3 location).
     # Example for South to East Motion
     # Cut kasernenstrasse_SN_branch at stopline
     centerline = LineString([(lon, lat) for lat, lon in kasernenstrasse_SN_branch])
-    centerline = cut_line_at_stop(centerline, kasernenstrasse_south_stopline, choose='first')
+    centerline = cut_line_at_stop(centerline, kasernenstrasse_south_stopline, choose='first') # <--- Options: choose='first' or choose='last'
     kasernenstrasse_SN_branch = [(lat, lon) for lon, lat in centerline.coords]
     # Get its spline in XY:2056 coordinates
     tmp_spl = fit_roadway_centerline_spline(kasernenstrasse_SN_branch)
@@ -119,20 +119,20 @@ This is performed on Gessnerbrücke (D3 location).
     south_east_spl = fit_roadway_centerline_spline(south_east_merged_coords, coordsys='2056')
     plot_spline_xy_2056(m, south_east_spl, label="Turning Centerline (S->E)", 
                         linecolor=colors_dict['south'], linedashed=True, start_point=True)
-    splines_dict['S_2_E'] = south_east_spl <--- Saving
+    splines_dict['S_2_E'] = south_east_spl # <--- Saving
     ```
     - We can visualize all centerlines on map via `folium`.
     ```
     m = create_swisstopo_map(center_lat=df["lat_ekf"].mean(), center_lon=df["lon_ekf"].mean(), add_layer_control=False)
-    plot_all_centerlines_splines_xy_2056(m, splines_dict, add_layer_control=True) <--- Layer Control must be True in last layer only (if exists)
+    plot_all_centerlines_splines_xy_2056(m, splines_dict, add_layer_control=True) # <--- Layer Control must be True in last layer only (if exists)
 
-    m.save(f"../maps/road_centerlines_map_{date}_{intersection}.html") <--- Map with only centerlines
+    m.save(f"../maps/road_centerlines_map_{date}_{intersection}.html") # <--- Map with only centerlines
 
     m = create_swisstopo_map(center_lat=df["lat_ekf"].mean(), center_lon=df["lon_ekf"].mean(), add_layer_control=False)
     plot_all_centerlines_splines_xy_2056(m, splines_dict, add_layer_control=False)
-    plot_bicycles_trajectories_xy_2056(m, df, linecolor='black', linealpha=0.25, add_layer_control=True) <--- Layer Control must be True in last layer only (if exists)
+    plot_bicycles_trajectories_xy_2056(m, df, linecolor='black', linealpha=0.25, add_layer_control=True) # <--- Layer Control must be True in last layer only (if exists)
 
-    m.save(f"../maps/trajectories_map_{date}_{intersection}_{time_slot}_{code}.html") <--- Map with only centerlines + all bicycles trajectories
+    m.save(f"../maps/trajectories_map_{date}_{intersection}_{time_slot}_{code}.html") # <--- Map with only centerlines + all bicycles trajectories
     ```
     - Same thing is done for bike lane boundaries (if exists). They are saved in `../data/bike_lane_boundaries_splines_<date>_<location>.pkl`. Their purpose is to determine whether the bike is driving within its dedicated lane and where that lane ends (i.e. stopline).
 3. Projection onto Roadway-Aligned (i.e. Lane) Coordinates:
@@ -158,7 +158,7 @@ This is performed on Gessnerbrücke (D3 location).
             lane_boundaries_spl_dict[lb_keys[0]],
             lane_boundaries_spl_dict[lb_keys[1]],
         ]
-        lane_boundary_info <--- This is where we store the validity regions and lateral offsets (code omitted here for brevity)
+        # lane_boundary_info <--- This is where we store the validity regions and lateral offsets (code omitted here for brevity)
         ```
         3. Perform the coordinate transformation.
         ```
