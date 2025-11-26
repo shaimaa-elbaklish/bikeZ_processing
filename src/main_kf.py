@@ -49,7 +49,7 @@ Y_2056_offset = XY_2056_Bounds[1][0]
 # MAIN
 # #############################################################################
 filename = f"trajectories_bikes_{date}_{intersection}_{timeslot}_{code}-1.csv"
-df = pd.read_csv(BikeZ_Config.data_root + f"{date}/{intersection}/{filename}")
+df = pd.read_csv(data_root + f"{date}/{intersection}/{filename}")
 # COLUMNS: ['veh_id', 'veh_type', 'speed(km/h)', 'a(m/s2)', 'time(s)', 'X_2056(m)', 'Y_2056(m)', 'longitude', 'latitude', 'datetime']
 # add a column as a missing flag
 df['missing'] = (df['speed(km/h)'] == -1)
@@ -117,10 +117,10 @@ for veh_id in tqdm(unique_ids, desc="Processing EKF on Bicycles"):
     gc.collect()
         
 filename = f"trajectories_bikes_{date}_{intersection}_{timeslot}_{code}-1-ekf.csv"
-filt_df.to_csv(BikeZ_Config.data_root + f"{date}/{intersection}/{filename}", index=False)
+filt_df.to_csv(data_root + f"{date}/{intersection}/{filename}", index=False)
 
 # filename = f"trajectories_bikes_{date}_{intersection}_{time_slot}_{code}-1-ekf.csv"
-# filt_df = pd.read_csv(BikeZ_Config.data_root + f"{date}/{intersection}/{filename}")
+# filt_df = pd.read_csv(data_root + f"{date}/{intersection}/{filename}")
 # unique_ids = df['veh_id'].unique()
 
 # oveview of trajectories
