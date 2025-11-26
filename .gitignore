@@ -10,3 +10,4 @@ src/__pycache__/tools_filtering.cpython-312.pyc
 src/__pycache__/tools_kalman.cpython-312.pyc
 .idea/misc.xml
 .idea/bikeZ_analysis.iml
+debugging/

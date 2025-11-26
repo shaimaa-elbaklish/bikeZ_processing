@@ -28,11 +28,11 @@ from scipy.interpolate import splev
 from shapely.ops import linemerge, unary_union
 
 from _constants import BikeZ_Config
-from tools_coordinateTransform import fit_roadway_centerline_spline
-from tools_coordinateTransform import convert_roadway_to_xy2056_coordinates
-from tools_coordinateTransform import connect_lines
-from tools_coordinateTransform import cut_line_at_stop
-from tools_coordinateTransform import densify_linestring
+from tools_coordinate_transform import fit_roadway_centerline_spline
+from tools_coordinate_transform import convert_roadway_to_xy2056_coordinates
+from tools_coordinate_transform import connect_lines_g2
+from tools_coordinate_transform import cut_line_at_stop
+from tools_coordinate_transform import densify_linestring
 
 from tools_map_visualization import create_swisstopo_map
 from tools_map_visualization import plot_spline_xy_2056
@@ -44,21 +44,32 @@ from tools_map_visualization import plot_bicycles_trajectories_xy_2056
 # #############################################################################
 # CONSTANTS
 # #############################################################################
+# Configuration
+BikeZ_Config = BikeZ_Config()
+
+# Specify Trajectory File
 date = BikeZ_Config.avail_dates[0]
-intersection = BikeZ_Config.avail_intersections[2]
-time_slot = 'AM1'
-code= 'E'
+campaign = f"Zurich_2025{date[5:7]}" # June or September
+mode = BikeZ_Config.avail_modes[0] # Bike
+data_root = BikeZ_Config.data_root[campaign][mode]
+
+intersection, code = BikeZ_Config.avail_intersections[date][3]
+timeslot = BikeZ_Config.avail_timeslots[date][(intersection, code)][0] # 'AM1'
+
+XY_2056_Bounds = BikeZ_Config.XY_2056_Bounds[date][(intersection, code)]
+X_2056_offset = XY_2056_Bounds[0][0]
+Y_2056_offset = XY_2056_Bounds[1][0]
 
 # #############################################################################
 # MAIN: Load Data (Trajectories)
 # #############################################################################
-filename = f"trajectories_bikes_{date}_{intersection}_{time_slot}_{code}-1-ekf.csv"
-df = pd.read_csv(BikeZ_Config.data_root + f"{date}/{intersection}/{filename}")
+filename = f"trajectories_bikes_{date}_{intersection}_{timeslot}_{code}-1-ekf.csv"
+df = pd.read_csv(data_root + f"{date}/{intersection}/{filename}")
 df = df.dropna()
 
 # Convert from EPSG:2056 to EPSG:4326 (lat, lon)
-df['x_act_ekf'] = df['x_ekf'] + BikeZ_Config.X_2056_Bounds[0]
-df['y_act_ekf'] = df['y_ekf'] + BikeZ_Config.Y_2056_Bounds[0]
+df['x_act_ekf'] = df['x_ekf'] + X_2056_offset
+df['y_act_ekf'] = df['y_ekf'] + Y_2056_offset
 transformer = Transformer.from_crs("EPSG:2056", "EPSG:4326", always_xy=True)
 df["lon_ekf"], df["lat_ekf"] = transformer.transform(df["x_act_ekf"].values, df["y_act_ekf"].values)
 
@@ -132,6 +143,7 @@ centerline_coords_list = [
     for branch in branches if branch.geom_type == "LineString"
 ]
 print(f"Extracted {len(centerline_coords_list)} separate branches.")
+
 
 kasernenstrasse_NS_branch = []
 for i in [14, 0, 3, 9]:
@@ -232,15 +244,15 @@ y_spline = np.zeros_like(all_s)
 for i in range(x_spline.shape[0]):
     x_spline[i], y_spline[i] = convert_roadway_to_xy2056_coordinates(all_s[i], all_d[i], tck, unew, cum_dist)
 
-# plot_line_xy_2056(m, x_spline, y_spline, label="Lagerstrasse Centerline (UP)", linecolor='red', linedashed=False)
-# plot_line_latlon(m, gessnerbrucke_EW_branch, label="@SwissTopo: Gessnerbrücke Centerline", linecolor='red', linedashed=False)
+# plot_line_xy_2056(m, x_spline, y_spline, label="Lagerstrasse Centerline (UP)", linecolor='red', linedashed=False, start_point=True)
+# plot_line_latlon(m, gessnerbrucke_EW_branch, label="@SwissTopo: Gessnerbrücke Centerline", linecolor='red', linedashed=False, start_point=True)
 
 xy_lagerstrasse_west = np.column_stack((x_spline, y_spline))
 tmp_spl = fit_roadway_centerline_spline(gessnerbrucke_EW_branch)
 tck = tmp_spl[0]
 x_spline, y_spline = splev(np.linspace(0, 1, 50), tck)
 xy_gessnerbrucke_west = np.column_stack((x_spline, y_spline))
-east_west_merged_coords, _, _= connect_lines(xy_gessnerbrucke_west[::-1], xy_lagerstrasse_west[::-1], n_connector=120, verbose=True)
+east_west_merged_coords, _, _= connect_lines_g2(xy_gessnerbrucke_west[::-1], xy_lagerstrasse_west[::-1], n_connector=120, verbose=True)
 east_west_spl = fit_roadway_centerline_spline(east_west_merged_coords, coordsys='2056')
 plot_spline_xy_2056(m, east_west_spl, label="Lagerstrasse Centerline (E->W)", 
                     linecolor=colors_dict['east'], linedashed=True, start_point=True)
@@ -267,7 +279,7 @@ tmp_spl = fit_roadway_centerline_spline(gessnerbrucke_WE_branch)
 tck = tmp_spl[0]
 x_spline, y_spline = splev(np.linspace(0, 1, 50), tck)
 xy_gessnerbrucke_east = np.column_stack((x_spline, y_spline))
-west_east_merged_coords, _, _= connect_lines(xy_lagerstrasse_east, xy_gessnerbrucke_east, n_connector=120, verbose=True)
+west_east_merged_coords, _, _= connect_lines_g2(xy_lagerstrasse_east, xy_gessnerbrucke_east, n_connector=120, verbose=True)
 west_east_spl = fit_roadway_centerline_spline(west_east_merged_coords, coordsys='2056')
 plot_spline_xy_2056(m, west_east_spl, label="Lagerstrasse Centerline (W->E)",
                     linecolor=colors_dict['west'], linedashed=True, start_point=True)
@@ -290,7 +302,7 @@ tck = tmp_spl[0]
 x_spline, y_spline = splev(np.linspace(0, 1, 50), tck)
 xy_kasernenstrasse_south = np.column_stack((x_spline, y_spline))
 
-south_east_merged_coords, _, _= connect_lines(xy_kasernenstrasse_south, xy_gessnerbrucke_east, n_connector=120, verbose=True)
+south_east_merged_coords, _, _= connect_lines_g2(xy_kasernenstrasse_south, xy_gessnerbrucke_east, n_connector=120, verbose=True)
 south_east_spl = fit_roadway_centerline_spline(south_east_merged_coords, coordsys='2056')
 plot_spline_xy_2056(m, south_east_spl, label="Turning Centerline (S->E)", 
                     linecolor=colors_dict['south'], linedashed=True, start_point=True)
@@ -304,7 +316,7 @@ splines_dict['S_2_E'] = south_east_spl
 # plot_line_latlon(m, kasernenstrasse_SN_branch, label="Kasernenstrasse Centerline (S->N)", linecolor='red', linedashed=False, start_point=True)
 # plot_line_xy_2056(m, xy_lagerstrasse_west[:, 0], xy_lagerstrasse_west[:, 1], label="Lagerstrasse West Centerline", linecolor='red', linedashed=False, start_point=True)
 
-south_west_merged_coords, _, _= connect_lines(xy_kasernenstrasse_south, xy_lagerstrasse_west[::-1], n_connector=120, verbose=True)
+south_west_merged_coords, _, _= connect_lines_g2(xy_kasernenstrasse_south, xy_lagerstrasse_west[::-1], n_connector=120, verbose=True)
 south_west_spl = fit_roadway_centerline_spline(south_west_merged_coords, coordsys='2056')
 plot_spline_xy_2056(m, south_west_spl, label="Turning Centerline (S->W)", 
                     linecolor=colors_dict['south'], linedashed=True, start_point=True)
@@ -328,7 +340,7 @@ xy_kasernenstrasse_north = np.column_stack((x_spline, y_spline))
 # plot_line_latlon(m, kasernenstrasse_NS_branch_1, label="Kasernenstrasse Centerline (N->S)", linecolor='red', linedashed=False, start_point=True)
 # plot_line_xy_2056(m, xy_gessnerbrucke_east[:, 0], xy_gessnerbrucke_east[:, 1], label="Gessnerbrücke East Centerline", linecolor='red', linedashed=False, start_point=True)
 
-north_east_merged_coords, _, _= connect_lines(xy_kasernenstrasse_north, xy_gessnerbrucke_east, n_connector=120, verbose=True)
+north_east_merged_coords, _, _= connect_lines_g2(xy_kasernenstrasse_north, xy_gessnerbrucke_east, n_connector=120, verbose=True)
 north_east_spl = fit_roadway_centerline_spline(north_east_merged_coords, coordsys='2056')
 plot_spline_xy_2056(m, north_east_spl, label="Turning Centerline (N->E)", 
                     linecolor=colors_dict['north'], linedashed=True, start_point=True)
@@ -342,7 +354,7 @@ splines_dict['N_2_E'] = north_east_spl
 # plot_line_latlon(m, kasernenstrasse_NS_branch_1, label="Kasernenstrasse Centerline (N->S)", linecolor='red', linedashed=False, start_point=True)
 # plot_line_xy_2056(m, xy_lagerstrasse_west[:, 0], xy_lagerstrasse_west[:, 1], label="Lagerstrasse West Centerline", linecolor='red', linedashed=False, start_point=True)
 
-north_west_merged_coords, _, _= connect_lines(xy_kasernenstrasse_north, xy_lagerstrasse_west[::-1], n_connector=120, verbose=True)
+north_west_merged_coords, _, _= connect_lines_g2(xy_kasernenstrasse_north, xy_lagerstrasse_west[::-1], n_connector=120, verbose=True)
 north_west_spl = fit_roadway_centerline_spline(north_west_merged_coords, coordsys='2056')
 plot_spline_xy_2056(m, north_west_spl, label="Turning Centerline (N->W)", 
                     linecolor=colors_dict['north'], linedashed=True, start_point=True)
@@ -365,7 +377,7 @@ tck = tmp_spl[0]
 x_spline, y_spline = splev(np.linspace(0, 1, 50), tck)
 xy_stadttunnel = np.column_stack((x_spline, y_spline))
 
-west_north_merged_coords, _, _= connect_lines(xy_lagerstrasse_east, xy_stadttunnel, n_connector=120, verbose=True)
+west_north_merged_coords, _, _= connect_lines_g2(xy_lagerstrasse_east, xy_stadttunnel, n_connector=120, verbose=True)
 west_north_spl = fit_roadway_centerline_spline(west_north_merged_coords, coordsys='2056')
 plot_spline_xy_2056(m, west_north_spl, label="Turning Centerline (W->N)",
                     linecolor=colors_dict['west'], linedashed=True, start_point=True)
@@ -389,7 +401,7 @@ tck = tmp_spl[0]
 x_spline, y_spline = splev(np.linspace(0, 1, 50), tck)
 xy_kasernenstrasse_south = np.column_stack((x_spline, y_spline))
 
-west_south_merged_coords, _, _= connect_lines(xy_lagerstrasse_east, xy_kasernenstrasse_south, n_connector=120, verbose=True)
+west_south_merged_coords, _, _= connect_lines_g2(xy_lagerstrasse_east, xy_kasernenstrasse_south, n_connector=120, verbose=True)
 west_south_spl = fit_roadway_centerline_spline(west_south_merged_coords, coordsys='2056')
 plot_spline_xy_2056(m, west_south_spl, label="Turning Centerline (W->S)", 
                     linecolor=colors_dict['west'], linedashed=True, start_point=True)
@@ -403,7 +415,7 @@ splines_dict['W_2_S'] = west_south_spl
 # plot_line_latlon(m, stadttunnel_branch, label="Stadttunnel Centerline", linecolor='red', linedashed=False, start_point=True)
 # plot_line_xy_2056(m, xy_gessnerbrucke_west[:, 0], xy_gessnerbrucke_west[:, 1], label="Gessnerbrücke West Centerline", linecolor='red', linedashed=False, start_point=True)
 
-east_north_merged_coords, _, _= connect_lines(xy_gessnerbrucke_west[::-1], xy_stadttunnel, n_connector=120, verbose=True)
+east_north_merged_coords, _, _= connect_lines_g2(xy_gessnerbrucke_west[::-1], xy_stadttunnel, n_connector=120, verbose=True)
 east_north_spl = fit_roadway_centerline_spline(east_north_merged_coords, coordsys='2056')
 plot_spline_xy_2056(m, east_north_spl, label="Turning Centerline (E->N)", 
                     linecolor=colors_dict['east'], linedashed=True, start_point=True)
@@ -417,7 +429,7 @@ splines_dict['E_2_N'] = east_north_spl
 # plot_line_latlon(m, kasernenstrasse_NS_branch_2, label="Stadttunnel Centerline", linecolor='red', linedashed=False, start_point=True)
 # plot_line_xy_2056(m, xy_gessnerbrucke_west[:, 0], xy_gessnerbrucke_west[:, 1], label="Gessnerbrücke West Centerline", linecolor='red', linedashed=False, start_point=True)
 
-east_south_merged_coords, _, _= connect_lines(xy_gessnerbrucke_west[::-1], xy_kasernenstrasse_south, n_connector=120, verbose=True)
+east_south_merged_coords, _, _= connect_lines_g2(xy_gessnerbrucke_west[::-1], xy_kasernenstrasse_south, n_connector=120, verbose=True)
 east_south_spl = fit_roadway_centerline_spline(east_south_merged_coords, coordsys='2056')
 plot_spline_xy_2056(m, east_south_spl, label="Turning Centerline (E->S)", 
                     linecolor=colors_dict['east'], linedashed=True, start_point=True)
@@ -449,7 +461,7 @@ m = create_swisstopo_map(center_lat=df["lat_ekf"].mean(), center_lon=df["lon_ekf
 plot_all_centerlines_splines_xy_2056(m, splines_dict, add_layer_control=False)
 plot_bicycles_trajectories_xy_2056(m, df, linecolor='black', linealpha=0.25, add_layer_control=True)
 
-m.save(f"../maps/trajectories_map_{date}_{intersection}_{time_slot}_{code}.html")
+m.save(f"../maps/trajectories_map_{date}_{intersection}_{timeslot}_{code}.html")
 
 
 # #############################################################################

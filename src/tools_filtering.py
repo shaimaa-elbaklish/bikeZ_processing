@@ -31,7 +31,7 @@ from _constants import PROCESSING_THR_VELOCITY
 def calculate_features(veh_df: pd.DataFrame, fps: float = 25.0):
     speed_delta = SPEED_ESTIMATION_HORIZON if len(veh_df) > SPEED_ESTIMATION_HORIZON else 1
     feat_veh_df = veh_df.copy()
-    feat_veh_df['frame_nr'] = np.round(feat_veh_df['time'] * fps, decimals=0)
+    feat_veh_df['frame_nr'] = np.round(feat_veh_df['time'] * fps + 1e-05, decimals=0)
     feat_veh_df['frame_nr'] = feat_veh_df['frame_nr'].astype(int)
     # Calculate time features
     feat_veh_df['delta_time'] = feat_veh_df['time'].diff()
@@ -79,18 +79,34 @@ def calculate_features(veh_df: pd.DataFrame, fps: float = 25.0):
     # Calculate Angle Features
         # Estimated Angle Based on Trajectory - Forward
     feat_veh_df["angle_estim1_forward"] = np.atan2(feat_veh_df["v_y_forward"], feat_veh_df["v_x_forward"]) 
-    feat_veh_df["angle_estim1_forward"] = boundAngleListPositive(feat_veh_df["angle_estim1_forward"], "rad")
+    frame_start = feat_veh_df.loc[feat_veh_df['angle_estim1_forward'].isna(), 'frame_nr'].max() + 1
+    angles = feat_veh_df.loc[feat_veh_df["frame_nr"] >= frame_start, "angle_estim1_forward"].to_numpy()
+    angles = np.unwrap(angles, period = 2*np.pi)
+    feat_veh_df.loc[feat_veh_df["frame_nr"] >= frame_start, "angle_estim1_forward"] = angles
     feat_veh_df["angle_estimation_forward"] = feat_veh_df["angle_estim1_forward"]
     feat_veh_df = _rollingMA_limHorizon(feat_veh_df, "angle_estimation_forward", "angle_estimation_forward")
+    
+    # feat_veh_df["angle_estim1_forward"] = boundAngleListPositive(feat_veh_df["angle_estim1_forward"], "rad")
+    # feat_veh_df["angle_estimation_forward"] = feat_veh_df["angle_estim1_forward"]
+    # feat_veh_df = _rollingMA_limHorizon(feat_veh_df, "angle_estimation_forward", "angle_estimation_forward")
+    
     feat_veh_df = _deltaForward(feat_veh_df,  "angle_estimation_forward", "angle_vel_estimation_forward", speed_delta)
     feat_veh_df["angle_vel_estimation_forward"] = [angle if abs(angle)<ANGLE_VELOCITY_THRESHOLD else ANGLE_VELOCITY_THRESHOLD for angle in feat_veh_df["angle_vel_estimation_forward"]]
     feat_veh_df["angle_vel_estimation_forward"] = feat_veh_df["angle_vel_estimation_forward"]/feat_veh_df["delta_time_forward"]  
     feat_veh_df = _rollingMA_limHorizon(feat_veh_df, "angle_vel_estimation_forward", "angle_vel_estimation_forward")
         # Estimated Angle Based on Trajectory - Backward
     feat_veh_df["angle_estim1_backward"] = np.atan2(feat_veh_df["v_y_backward"], feat_veh_df["v_x_backward"]) 
-    feat_veh_df["angle_estim1_backward"] = boundAngleListPositive(feat_veh_df["angle_estim1_backward"], "rad")
+    frame_end = feat_veh_df.loc[feat_veh_df['angle_estim1_backward'].isna(), 'frame_nr'].min() - 1
+    angles = feat_veh_df.loc[feat_veh_df["frame_nr"] <= frame_end, "angle_estim1_backward"].to_numpy()
+    angles = np.unwrap(angles, period = 2*np.pi)
+    feat_veh_df.loc[feat_veh_df["frame_nr"] <= frame_end, "angle_estim1_backward"] = angles
     feat_veh_df["angle_estimation_backward"] = feat_veh_df["angle_estim1_backward"]
     feat_veh_df = _rollingMA_limHorizon(feat_veh_df, "angle_estimation_backward", "angle_estimation_backward")
+    
+    # feat_veh_df["angle_estim1_backward"] = boundAngleListPositive(feat_veh_df["angle_estim1_backward"], "rad")
+    # feat_veh_df["angle_estimation_backward"] = feat_veh_df["angle_estim1_backward"]
+    # feat_veh_df = _rollingMA_limHorizon(feat_veh_df, "angle_estimation_backward", "angle_estimation_backward")
+    
     feat_veh_df = _deltaForward(feat_veh_df,  "angle_estimation_backward", "angle_vel_estimation_backward", speed_delta)
     feat_veh_df["angle_vel_estimation_backward"] = [angle if abs(angle)<ANGLE_VELOCITY_THRESHOLD else ANGLE_VELOCITY_THRESHOLD for angle in feat_veh_df["angle_vel_estimation_backward"]]
     feat_veh_df["angle_vel_estimation_backward"] = feat_veh_df["angle_vel_estimation_backward"]/feat_veh_df["delta_time_backward"]  

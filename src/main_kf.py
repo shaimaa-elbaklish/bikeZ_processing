@@ -31,7 +31,7 @@ from tools_kalman import calculate_kalman_filtered_trajectory
 # #############################################################################
 date = BikeZ_Config.avail_dates[0]
 intersection = BikeZ_Config.avail_intersections[2]
-time_slot = 'AM2'
+time_slot = 'PM6'
 code = 'E'
 
 # #############################################################################
@@ -60,31 +60,22 @@ df['datetime'] = pd.to_datetime(df['datetime'], format='ISO8601')
 
 # Fix time = -1 issues
 # Find ref. datetime (i.e. datetime when time == 0)
-ref_datetime = df.loc[df['time'] == 0, 'datetime'].unique()[0]
-fix_df = df[df['time'] == -1]
-# print(fix_df['veh_id'].unique()) # [35, 86, 101, 110, 146]
-for idx, _ in fix_df.iterrows():
-    df.loc[idx, 'time'] = np.round((df.loc[idx, 'datetime'] - ref_datetime).total_seconds(), decimals=2)
-del fix_df
-gc.collect()
+ref_datetime = df.loc[df['time'] == 0, 'datetime'].unique()
+if len(ref_datetime) >= 1:
+    ref_datetime = ref_datetime[0]
+    fix_df = df[df['time'] == -1]
+    # print(fix_df['veh_id'].unique()) # [35, 86, 101, 110, 146]
+    for idx, _ in fix_df.iterrows():
+        df.loc[idx, 'time'] = np.round((df.loc[idx, 'datetime'] - ref_datetime).total_seconds(), decimals=2)
+    del fix_df
+    gc.collect()
+else:
+    # to handle 'AM6'
+    ref_datetime = df['datetime'].min()
+    ref_time = df.loc[(df['datetime'] == ref_datetime) & (df['time'] >= 0), 'time'].unique()[0]
+    df['time'] = df['datetime'].apply(lambda x: np.round((x - ref_datetime).total_seconds() + ref_time, decimals=3))
+
 df = df.sort_values(by=['veh_id', 'time'], ascending=True)
-
-# # oveview of trajectories
-# fig, axs = plt.subplots(1, 2, figsize=(8, 4))
-# grouped = df[~df['missing']].groupby(by='veh_id')
-# for veh_id, veh_df in grouped:
-#     axs[0].plot(veh_df['x_act'], veh_df['y_act'], 'b')
-#     axs[1].plot(veh_df['x'], veh_df['y'], 'b')
-
-# axs[0].set_xlabel('X_2056 [m]')
-# axs[0].set_ylabel('Y_2056 [m]')
-# axs[0].set_xlim(BikeZ_Config.X_2056_Bounds)
-# axs[0].set_ylim(BikeZ_Config.Y_2056_Bounds)
-
-# axs[1].set_xlabel('X_2056 - X_ref [m]')
-# axs[1].set_ylabel('Y_2056 - Y_ref [m]')
-
-# fig.tight_layout()
 
 # #############################################################################
 # MAIN: Perform EKF for all bicycles
@@ -98,8 +89,8 @@ unique_ids = df['veh_id'].unique()
 for veh_id in tqdm(unique_ids, desc="Processing EKF on Bicycles"):
     veh_df = df[df['veh_id'] == veh_id].copy()
     veh_df = veh_df.sort_values(by='time', ascending=True)
-    first_frame = int(np.round(veh_df['time'].iloc[0]*BikeZ_Config.fps, decimals=0))
-    last_frame = int(np.round(veh_df['time'].iloc[-1]*BikeZ_Config.fps, decimals=0))
+    first_frame = int(np.round(veh_df['time'].iloc[0]*BikeZ_Config.fps + 1e-05, decimals=0))
+    last_frame = int(np.round(veh_df['time'].iloc[-1]*BikeZ_Config.fps + 1e-05, decimals=0))
     filt_bike_df = calculate_kalman_filtered_trajectory(
         veh_df[(~veh_df['missing'])], Qk, Rk, first_frame, last_frame, fps=BikeZ_Config.fps
     )
@@ -116,6 +107,10 @@ for veh_id in tqdm(unique_ids, desc="Processing EKF on Bicycles"):
         
 filename = f"trajectories_bikes_{date}_{intersection}_{time_slot}_{code}-1-ekf.csv"
 filt_df.to_csv(BikeZ_Config.data_root + f"{date}/{intersection}/{filename}", index=False)
+
+# filename = f"trajectories_bikes_{date}_{intersection}_{time_slot}_{code}-1-ekf.csv"
+# filt_df = pd.read_csv(BikeZ_Config.data_root + f"{date}/{intersection}/{filename}")
+# unique_ids = df['veh_id'].unique()
 
 # oveview of trajectories
 # unique_ids = [22, 72, 152, 161]

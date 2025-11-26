@@ -34,7 +34,8 @@ def _f_dyn(x, u, dt):
         x[0] + dt*x[2]*np.cos(x[3]),
         x[1] + dt*x[2]*np.sin(x[3]),
         max(0, x[2] + dt*u[0]),
-        boundAnglePositive(x[3] + dt*u[1], "rad")
+        x[3] + dt*u[1]
+        #boundAnglePositive(x[3] + dt*u[1], "rad")
     ])
 
 
@@ -222,6 +223,9 @@ def calculate_kalman_filtered_trajectory(veh_df: pd.DataFrame, Q_t: np.ndarray, 
         if measurement_available:
             filt_veh_df.loc[filt_veh_df['frame_nr']==frame_nr, 'a'] = feat_veh_df.loc[feat_veh_df['frame_nr']==frame_nr, 'a'].item()
         else:
-            filt_veh_df.loc[filt_veh_df['frame_nr']==frame_nr, 'a'] = missing_inputs[frame_nr]['accel']
+            if frame_nr == last_frame:
+                filt_veh_df.loc[filt_veh_df['frame_nr']==last_frame, 'a'] = filt_veh_df.loc[filt_veh_df['frame_nr']==last_frame-1, 'a'].item()
+            else:
+                filt_veh_df.loc[filt_veh_df['frame_nr']==frame_nr, 'a'] = missing_inputs[frame_nr]['accel']
     
     return filt_veh_df
