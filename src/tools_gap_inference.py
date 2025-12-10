@@ -266,7 +266,9 @@ def reconstruct_gap(start_state, target_state, last_available_input, next_availa
     t_norm = (times - t_start) / (t_target - t_start)  # in [0,1] across the full array
 
     n_coeff = degree + 1
-    beta0 = np.zeros(n_coeff) if beta_init is None else np.asarray(beta_init, dtype=float)
+    # beta0 = np.zeros(n_coeff) if beta_init is None else np.asarray(beta_init, dtype=float)
+    equal_incr = 1.0 / n_coeff
+    beta0 = np.log(np.ones(n_coeff) * equal_incr) # warm start
 
     # 3) objective helpers: finite-difference derivatives with robust np.gradient
     def compute_from_beta(beta):
@@ -335,11 +337,9 @@ def reconstruct_gap(start_state, target_state, last_available_input, next_availa
         #         lambda_acc * acc_pen + lambda_beta * scale * beta_pen + \
         #         0.1 * lambda_acc * acc_effort_pen
         
-        obj = lambda_jerk * jerk_pen + lambda_beta * scale * beta_pen + \
-                0.1 * lambda_acc * acc_effort_pen
+        obj = lambda_jerk * jerk_pen + lambda_beta * scale * beta_pen + lambda_acc * acc_effort_pen
         return obj
 
-    # Optional: provide gradient (not implemented) -> let optimizer approximate numerically
     # optimization
     if verbose:
         print("Optimizing monotone s(t) on [{:.6f}, {:.6f}], N={}, S_total={:.4f}, k0={:.4f}, k1={:.4f}".
@@ -347,19 +347,22 @@ def reconstruct_gap(start_state, target_state, last_available_input, next_availa
     
     # res = minimize(objective, beta0, method="L-BFGS-B", options={'maxiter': 200, 'disp': verbose})
     # beta_opt = res.x
+    
     beta_opt, al_res = augmented_lagrangian(
         objective_fn=objective,
         beta0=beta0,
         compute_from_beta_fn=compute_from_beta,
+        clothoid_pieces=pieces,
+        clothoid_lengths=lengths,
         v0_target=v0_target,
         v1_target=v1_target,
         a0_target=a0_target,
         a1_target=a1_target,
         times=times,
         max_outer=20,
-        mu0=50.0,
-        mu_factor=10.0,
-        tol_constraint=1e-8,
+        mu0=100.0,
+        mu_factor=5.0,
+        tol_constraint=1e-04,
         verbose=verbose
     )
     
@@ -380,6 +383,8 @@ def reconstruct_gap(start_state, target_state, last_available_input, next_availa
     #     start_state, target_state, times
     # )
     # a_opt2 = np.gradient(v_opt2, times)
+    
+    
     
     import matplotlib.pyplot as plt
     
@@ -403,6 +408,11 @@ def reconstruct_gap(start_state, target_state, last_available_input, next_availa
     plt.scatter(times[0], start_state[-1], color='black')
     plt.scatter(times[-1], target_state[-1], color='red')
     
+    plt.figure('t-omega')
+    plt.plot(times, omega)
+    plt.scatter(times[0], last_available_input[1], color='black')
+    plt.scatter(times[-1], next_available_input[1], color='red')
+    
     sys.exit(1)
     
     
@@ -419,9 +429,9 @@ def reconstruct_gap(start_state, target_state, last_available_input, next_availa
         'omega': omega, 
         'alpha': alpha_opt,
         'beta': beta_opt,
-        'success': bool(res.success),
-        'message': res.message,
-        'optimization_result': res,
+        # 'success': bool(res.success),
+        # 'message': res.message,
+        # 'optimization_result': res,
         'S_total': S_total,
         'clothoid_lengths': lengths,
     }
@@ -457,73 +467,119 @@ def estimate_curvature(df, idx, window=3):
     return float(np.median(k))
 
 
-def augmented_lagrangian(objective_fn, beta0, compute_from_beta_fn,
+def augmented_lagrangian(objective_fn, beta0, compute_from_beta_fn, times,
                          v0_target, v1_target, a0_target, a1_target,
-                         times,
-                         max_outer=12,      # outer AL iterations
-                         mu0=50.0,          # initial penalty
-                         mu_factor=10.0,    # increase factor
+                         clothoid_pieces, clothoid_lengths,
+                         a_min=-3.0, a_max=3.0,
+                         omega_min=-0.5, omega_max=0.5,
+                         max_outer=12,
+                         mu0=50.0,
+                         mu_factor=10.0,
                          tol_constraint=1e-6,
                          verbose=False):
     """
-    Augmented Lagrangian wrapper to enforce:
-      v(0)=v0_target, v(T)=v1_target, a(0)=a0_target, a(T)=a1_target
-    - objective_fn(beta) returns scalar objective (jerk + beta penalties)
-    - compute_from_beta_fn(beta) returns (alpha, s, v, a, j)
-    - times: array used for any time-scaling / evaluation reporting
-
-    Returns optimized beta.
+    Augmented Lagrangian with:
+      - equality constraints: v(0), v(T), a(0), a(T)
+      - inequality constraints: a_min <= a(t) <= a_max
     """
 
-    # initialize
     beta = np.array(beta0, dtype=float)
-    ncons = 4
-    lam = np.zeros(ncons, dtype=float)   # Lagrange multipliers
+
+    # Lagrange multipliers
+    lam_v = np.zeros(2); lam_a = np.zeros(2)
+    mu_v = 1e3; mu_a = 50.0
+    lam_ineq = None                     # allocated after first eval
+
     mu = float(mu0)
+    
+    v_scale = max(1.0, (abs(v0_target)+abs(v1_target))/2.0)
+    a_scale = max(1.0, (abs(a0_target)+abs(a1_target))/2.0)
 
-    # helper to get constraints residuals c(beta)
-    def constraint_residuals(beta):
+    def eq_residuals(beta):
         _, _, v, a, _ = compute_from_beta_fn(beta)
-        c0 = float(v[0] - v0_target)
-        c1 = float(v[-1] - v1_target)
-        c2 = float(a[0] - a0_target)
-        c3 = float(a[-1] - a1_target)
-        return np.array([c0, c1, c2, c3], dtype=float)
+        c_v = np.array([(v[0] - v0_target)/v_scale, (v[-1] - v1_target)/v_scale])
+        c_a = np.array([(a[0] - a0_target)/a_scale, (a[-1] - a1_target)/a_scale])
+        return c_v, c_a
 
-    # inner minimizer options for L-BFGS-B
-    inner_opts = {'maxiter': 200, 'disp': False}
+    def ineq_residuals(beta):
+        nonlocal lam_ineq
+        _, s, v, a, _ = compute_from_beta_fn(beta)
+        
+        # geometric evaluation
+        xytheta = _eval_path_xytheta(clothoid_pieces, clothoid_lengths, s)
+        kappa = xytheta[:, 3]
+        omega = kappa * v
 
-    for outer_iter in range(max_outer):
-        # build augmented objective for current lam, mu
-        def aug_obj(beta_vec):
-            base = float(objective_fn(beta_vec))
-            c = constraint_residuals(beta_vec)
-            # Lagrange linear term + quadratic penalty
-            aug = float(np.dot(lam, c) + 0.5 * mu * np.dot(c, c))
-            return base + aug
+        # bounds
+        g_a_upper = a - a_max
+        g_a_lower = a_min - a
+    
+        g_w_upper = omega - omega_max
+        g_w_lower = omega_min - omega
+    
+        # combined inequality vector
+        g = np.concatenate([
+            g_a_upper, g_a_lower,
+            g_w_upper, g_w_lower
+        ])
 
-        # minimize augmented objective (unconstrained inner step)
-        res = minimize(aug_obj, beta, method='L-BFGS-B', options=inner_opts)
+        # initialize lambdas if first call
+        if lam_ineq is None:
+            lam_ineq = np.zeros_like(g)
+
+        return g
+
+    def augmented_objective(beta_vec):
+        base = float(objective_fn(beta_vec))
+
+        # constraints
+        c_v, c_a = eq_residuals(beta)
+        cineq = ineq_residuals(beta_vec)
+
+        # only penalize positive violations for inequalities
+        pos = np.maximum(0.0, cineq)
+
+        aug = (
+            lam_v.dot(c_v) + 0.5*mu_v*(c_v@c_v) + 
+            lam_a.dot(c_a) + 0.5*mu_a*(c_a@c_a) +
+            np.dot(lam_ineq, pos) +
+            0.5 * mu * np.dot(pos, pos)
+        )
+
+        return base + aug
+
+    for outer in range(max_outer):
+        res = minimize(augmented_objective, beta, method='L-BFGS-B',
+                       options={'maxiter': 200, 'disp': False})
+
         beta = res.x
 
-        # evaluate constraints
-        c = constraint_residuals(beta)
-        max_abs_c = np.max(np.abs(c))
+        # compute constraints
+        c_v, c_a = eq_residuals(beta)
+        cineq = ineq_residuals(beta)
+
+        pos = np.maximum(0.0, cineq)
+
+        max_eq = np.max(np.abs(c_v))
+        max_ineq = np.max(pos)
 
         if verbose:
-            print(f"[AL] iter {outer_iter:02d} mu={mu:.3e} max|c|={max_abs_c:.3e} obj={objective_fn(beta):.6e}")
+            print(f"[AL] iter {outer:02d}  mu={mu:.2e}  "
+                  f"max_eq={max_eq:.3e}  max_ineq={max_ineq:.3e}")
 
-        # check termination
-        if max_abs_c < tol_constraint:
+        if max(max_eq, max_ineq) < tol_constraint:
             if verbose:
-                print("[AL] constraints satisfied, exiting.")
+                print("[AL] constraints satisfied.")
             break
 
-        # update multipliers and possibly increase penalty
-        lam = lam + mu * c
+        # multiplier updates
+        lam_v = lam_v + mu_v * c_v
+        lam_a = lam_a + mu_a * c_a
+        lam_ineq = lam_ineq + mu * pos
 
-        # increase mu if constraints are not reducing
+        # tighten penalty
+        mu_v *= mu_factor
+        mu_a *= mu_factor
         mu *= mu_factor
 
-    # final result
     return beta, res

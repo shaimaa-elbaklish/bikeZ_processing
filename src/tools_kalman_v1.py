@@ -94,51 +94,6 @@ def _rts_smooth(xs_filt: np.ndarray, Ps_filt: np.ndarray,
     return xs_smooth, Ps_smooth
 
 
-def _gap_inference_objective(x, start_state, target_state, start_input, target_input, times):
-    inp_mag, inp_changes = 0, 0
-    curr_state = start_state
-    prev_input = start_input
-    for i in range(len(times)-1):
-        dt = times[i+1] - times[i]
-        next_state = _f_dyn(curr_state, u=x[2*i:2*i+2], dt=dt)
-        inp_mag += abs(x[2*i]) + abs(x[2*i+1])
-        inp_changes += abs(x[2*i] - prev_input[0]) + abs(x[2*i+1] - prev_input[1])
-        if i == len(times) - 2:
-            inp_changes += abs(x[2*i] - target_input[0]) + abs(x[2*i+1] - target_input[1])
-        curr_state = next_state
-        prev_input = x[2*i:2*i+2]
-    
-    final_pos_error = np.linalg.norm(next_state[:2] - target_state[:2])
-    final_vel_error = abs(next_state[-2] - target_state[-2])
-    final_ang_error = abs(next_state[-1] - target_state[-1])
-    jerk_error = (abs(x[0] - start_input[0])/(times[1]-times[0]) - 10) + \
-                 (abs(x[-2] - target_input[0])/(times[-2]-times[-1]) - 10)
-    return 10*final_pos_error + 2*final_vel_error + final_ang_error + inp_changes + 0.1*inp_mag + 10*jerk_error
-
-
-def _gap_inference(start_state, target_state, last_available_input, next_available_input, times):
-    possible_accel = (target_state[-2] - start_state[-2])/(times[-1] - times[0])
-    possible_ang_vel = (target_state[-1] - start_state[-1])/(times[-1] - times[0])
-    
-    n_vars = 2*(len(times)-1)
-    
-    x_initial_guess = np.asarray([[possible_accel, possible_ang_vel] for _ in range(len(times)-1)]).flatten()
-    bnds = ((-3, 3), (-0.5, 0.5))
-    res = minimize(_gap_inference_objective, x_initial_guess, method="nelder-mead",
-                   args=(start_state, target_state, last_available_input, next_available_input, times),
-                   # (x, start_state, target_state, start_input, target_input, times)
-                   options={'xatol': 1e-8, 'disp': False, 'maxiter': 800*n_vars, 'maxfev': 800*n_vars},
-                   bounds=tuple([b for _ in range(len(times)-1) for b in bnds]),
-    )
-    
-    missing_inputs = np.zeros(shape=(2, len(times)-1))
-    for i in range(missing_inputs.shape[1]):
-        missing_inputs[0, i] = res.x[2*i]
-        missing_inputs[1, i] = res.x[2*i+1]
-    
-    return missing_inputs
-
-
 def calculate_kalman_filtered_trajectory(veh_df: pd.DataFrame, Q_t: np.ndarray, 
                                          R_t: np.ndarray, fps: float = 25.0):
     tmp_df = calculate_features(veh_df[~veh_df['missing']], fps)   
@@ -201,7 +156,7 @@ def calculate_kalman_filtered_trajectory(veh_df: pd.DataFrame, Q_t: np.ndarray,
             res = reconstruct_gap(
                 states_kalman[:, i-1], target, inputs_all[:, i-1], np.asarray([target_accel, target_ang_vel]), 
                 missing_times, k0=k0, k1=k1, degree=8, lambda_jerk=1.0, 
-                lambda_vel=0.0, lambda_acc=10.0, lambda_beta=2.0, verbose=True
+                lambda_acc=100.0, lambda_beta=1.0, verbose=True
             )
             
             inputs_all[0, (times >= times[i]) & (times < next_avail_time)] = res['a'][1:-1]
@@ -210,7 +165,7 @@ def calculate_kalman_filtered_trajectory(veh_df: pd.DataFrame, Q_t: np.ndarray,
             for j in range(i, i+len(res['a'][1:-1])):
                 dt = times[j+1] - times[j]
                 states_pred[:, j+1], states_cov_pred[:, :, j+1] = _ekf_predict(
-                    states_kalman[:, j], states_cov_kalman[:, :, j], inputs_all[:, j], Q_t, dt
+                    states_kalman[:, j], states_cov_kalman[:, :, j], inputs_all[:, j], 10*Q_t, dt
                 )
                 y_t = np.asarray([
                     res['x'][1+j-i],
@@ -219,7 +174,7 @@ def calculate_kalman_filtered_trajectory(veh_df: pd.DataFrame, Q_t: np.ndarray,
                     res['theta'][1+j-i]
                 ])
                 states_kalman[:, j+1], states_cov_kalman[:, :, j+1] = _ekf_correct(
-                    states_pred[:, j+1], states_cov_pred[:, :, j+1], y_t, C_t, R_t
+                    states_pred[:, j+1], states_cov_pred[:, :, j+1], y_t, C_t, 10*R_t
                 )
             continue
         
@@ -241,7 +196,8 @@ def calculate_kalman_filtered_trajectory(veh_df: pd.DataFrame, Q_t: np.ndarray,
     states_rts, states_cov_rts = _rts_smooth(
         states_kalman, states_cov_kalman, states_pred, states_cov_pred, inputs_all, times
     )
-        
+    
+    
     filt_veh_df = pd.DataFrame(states_rts.T, columns=['x', 'y', 'speed', 'angle'])
     filt_veh_df['speed'] *= 3.6 # m/s to km/h 
     filt_veh_df['time'] = times
