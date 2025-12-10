@@ -30,8 +30,8 @@ class BikeZ_Config:
     avail_modes: Tuple[str] = ("bike", "vehicle")
     data_root: Dict = field(default_factory=lambda: {
         "Zurich_202506": {
-            # "bike": "C:/Users/ShaimaaElBaklish/Documents/Datasets/BikeZ/Zurich_202506/bike_trajectories/v2/",
-            "bike": "C:/Users/tramseier/Documents/SVT/Data/BikeZ/MobilLysis_bicycle_trajectory/",
+            "bike": "C:/Users/ShaimaaElBaklish/Documents/Datasets/BikeZ/Zurich_202506/bike_trajectories/v2/",
+            # "bike": "C:/Users/tramseier/Documents/SVT/Data/BikeZ/MobilLysis_bicycle_trajectory/",
             "vehicle": "C:/Users/ShaimaaElBaklish/Documents/Datasets/BikeZ/Zurich_202506/vehicle_trajectories/"
         },
         "Zurich_202509": {

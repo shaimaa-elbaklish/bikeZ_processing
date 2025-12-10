@@ -81,26 +81,11 @@ Y_2056_offset = XY_2056_Bounds[1][0]
 # #############################################################################
 # MAIN: Load Data (Trajectories)
 # #############################################################################
-<<<<<<< Updated upstream
-filename = f"trajectories_bikes_{date}_{
-    intersection}_{timeslot}_{code}-1-ekf.csv"
-=======
 filename = f"trajectories_bikes_{date}_{intersection}_{timeslot}_{code}-1.csv"
->>>>>>> Stashed changes
 df = pd.read_csv(data_root + f"{date}/{intersection}/{filename}")
 df = df.dropna()
 
 # Convert from EPSG:2056 to EPSG:4326 (lat, lon)
-<<<<<<< Updated upstream
-df['x_act_ekf'] = df['x_ekf'] + X_2056_offset
-df['y_act_ekf'] = df['y_ekf'] + Y_2056_offset
-transformer = Transformer.from_crs("EPSG:2056", "EPSG:4326", always_xy=True)
-df["lon_ekf"], df["lat_ekf"] = transformer.transform(
-    df["x_act_ekf"].values, df["y_act_ekf"].values)
-
-# Create a folium map
-center_lat, center_lon = df["lat_ekf"].mean(), df["lon_ekf"].mean()
-=======
 # df['x_act_ekf'] = df['x_ekf'] + X_2056_offset
 # df['y_act_ekf'] = df['y_ekf'] + Y_2056_offset
 # transformer = Transformer.from_crs("EPSG:2056", "EPSG:4326", always_xy=True)
@@ -109,7 +94,6 @@ center_lat, center_lon = df["lat_ekf"].mean(), df["lon_ekf"].mean()
 
 # Create a folium map
 center_lat, center_lon = df.loc[df['latitude'] != -1, "latitude"].mean(), df.loc[df['longitude'] != -1, "longitude"].mean()
->>>>>>> Stashed changes
 
 # #############################################################################
 # MAIN: Extract Remaining Centerlines from SwissTopo
@@ -145,11 +129,7 @@ centerl_Usteristrasse_EW = get_centerl_from_swisstopo(
 # #############################################################################
 # Create a folium map
 m = create_swisstopo_map(
-<<<<<<< Updated upstream
-    center_lat=df["lat_ekf"].mean(), center_lon=df["lon_ekf"].mean())
-=======
     center_lat=center_lat, center_lon=center_lon)
->>>>>>> Stashed changes
 
 # Create splines dictionary for saving
 splines_dict = {}
@@ -216,14 +196,6 @@ splines_dict['E_2_W'] = spl
 # #############################################################################
 
 spl = fit_roadway_centerline_spline(
-<<<<<<< Updated upstream
-    centerl_Gessnerallee_S[::-1] + centerl_Gessbrucke_EW)
-plot_spline_xy_2056(m, spl, label="Gessnerallee Centerline (N->S)",
-                    linecolor=colors_dict['north'], linedashed=True, start_point=True)
-
-splines_dict['S_2_W'] = spl
-
-=======
     centerl_Gessnerallee_S[::-1] + centerl_Gessbrucke_EW, smoothing=0)
 plot_spline_xy_2056(m, spl, label="Gessnerallee Centerline (S->W)",
                     linecolor=colors_dict['north'], linedashed=True, start_point=True)
@@ -300,7 +272,6 @@ plt.ylabel("Tangent Angle")
 plt.legend()
 plt.tight_layout()
 
->>>>>>> Stashed changes
 # #############################################################################
 # MAIN: Get Through South -> East Spline
 # #############################################################################
@@ -325,17 +296,6 @@ m.save(f"../maps/road_centerlines_map_{date}_{intersection}_debugging.html")
 # MAIN: Plotting and Saving FINAL Map
 # #############################################################################
 # Create a folium map
-<<<<<<< Updated upstream
-m = create_swisstopo_map(center_lat=df["lat_ekf"].mean(
-), center_lon=df["lon_ekf"].mean(), add_layer_control=False)
-plot_all_centerlines_splines_xy_2056(m, splines_dict, add_layer_control=True)
-
-m.save(f"../maps/road_centerlines_map_{date}_{intersection}.html")
-
-
-m = create_swisstopo_map(center_lat=df["lat_ekf"].mean(
-), center_lon=df["lon_ekf"].mean(), add_layer_control=False)
-=======
 m = create_swisstopo_map(center_lat=center_lat, center_lon=center_lon, add_layer_control=False)
 plot_all_centerlines_splines_xy_2056(m, splines_dict, add_layer_control=True)
 
@@ -344,7 +304,6 @@ m.save(f"../maps/road_centerlines_map_{date}_{intersection}_{code}.html")
 
 sys.exit(1)
 m = create_swisstopo_map(center_lat=center_lat, center_lon=center_lon, add_layer_control=False)
->>>>>>> Stashed changes
 plot_all_centerlines_splines_xy_2056(m, splines_dict, add_layer_control=False)
 plot_bicycles_trajectories_xy_2056(
     m, df, linecolor='black', linealpha=0.25, add_layer_control=True)

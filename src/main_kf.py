@@ -35,13 +35,8 @@ campaign = f"Zurich_2025{date[5:7]}"  # June or September
 mode = BikeZ_Config.avail_modes[0]  # Bike
 data_root = BikeZ_Config.data_root[campaign][mode]
 
-<<<<<<< Updated upstream
-intersection, code = BikeZ_Config.avail_intersections[date][4]
-timeslot = BikeZ_Config.avail_timeslots[date][(intersection, code)][0]  # 'AM1'
-=======
 intersection, code = BikeZ_Config.avail_intersections[date][0]
 timeslot = BikeZ_Config.avail_timeslots[date][(intersection, code)][0] # 'AM1'
->>>>>>> Stashed changes
 
 XY_2056_Bounds = BikeZ_Config.XY_2056_Bounds[date][(intersection, code)]
 X_2056_offset = XY_2056_Bounds[0][0]
@@ -72,30 +67,9 @@ df['datetime'] = pd.to_datetime(df['datetime'], format='ISO8601')
 
 # Fix time = -1 issues
 # Find ref. datetime (i.e. datetime when time == 0)
-<<<<<<< Updated upstream
-ref_datetime = df.loc[df['time'] == 0, 'datetime'].unique()
-if len(ref_datetime) >= 1:
-    ref_datetime = ref_datetime[0]
-    fix_df = df[df['time'] == -1]
-    # print(fix_df['veh_id'].unique()) # [35, 86, 101, 110, 146]
-    for idx, _ in fix_df.iterrows():
-        df.loc[idx, 'time'] = np.round(
-            (df.loc[idx, 'datetime'] - ref_datetime).total_seconds(), decimals=2)
-    del fix_df
-    gc.collect()
-else:
-    # to handle 'AM6'
-    ref_datetime = df['datetime'].min()
-    ref_time = df.loc[(df['datetime'] == ref_datetime) &
-                      (df['time'] >= 0), 'time'].unique()[0]
-    df['time'] = df['datetime'].apply(lambda x: np.round(
-        (x - ref_datetime).total_seconds() + ref_time, decimals=3))
-
-=======
 ref_datetime = df['datetime'].min()
 ref_time = df.loc[(df['datetime'] == ref_datetime) & (df['time'] >= 0), 'time'].unique()[0]
 df['time'] = df['datetime'].apply(lambda x: np.round((x - ref_datetime).total_seconds() + ref_time, decimals=3))
->>>>>>> Stashed changes
 df = df.sort_values(by=['veh_id', 'time'], ascending=True)
 
 # #############################################################################
@@ -110,22 +84,6 @@ unique_ids = df['veh_id'].unique()
 for veh_id in tqdm(unique_ids, desc="Processing EKF on Bicycles"):
     veh_df = df[df['veh_id'] == veh_id].copy()
     veh_df = veh_df.sort_values(by='time', ascending=True)
-<<<<<<< Updated upstream
-    first_frame = int(
-        np.round(veh_df['time'].iloc[0]*BikeZ_Config.fps + 1e-05, decimals=0))
-    last_frame = int(
-        np.round(veh_df['time'].iloc[-1]*BikeZ_Config.fps + 1e-05, decimals=0))
-    filt_bike_df = calculate_kalman_filtered_trajectory(
-        veh_df[(~veh_df['missing'])
-               ], Qk, Rk, first_frame, last_frame, fps=BikeZ_Config.fps
-    )
-    filt_bike_df = filt_bike_df[['frame_nr', 'x', 'y', 'speed', 'angle']]
-    filt_bike_df = filt_bike_df.rename(
-        columns={'x': 'x_ekf', 'y': 'y_ekf', 'speed': 'speed_ekf', 'angle': 'angle_ekf'})
-    veh_df['frame_nr'] = np.round(veh_df['time']*BikeZ_Config.fps, decimals=0)
-    veh_df['frame_nr'] = veh_df['frame_nr'].astype(int)
-    veh_df = veh_df.merge(filt_bike_df, on=['frame_nr'], how='left')
-=======
     filt_bike_df = calculate_kalman_filtered_trajectory(
         veh_df, Qk, Rk, fps=BikeZ_Config.fps
     )
@@ -135,7 +93,6 @@ for veh_id in tqdm(unique_ids, desc="Processing EKF on Bicycles"):
                  'angle': 'angle_ekf', 'a': 'a_ekf'}
     )
     veh_df = veh_df.merge(filt_bike_df, on=['time'], how='left')    
->>>>>>> Stashed changes
     if filt_df is None:
         filt_df = veh_df.copy()
     else:
