@@ -142,6 +142,8 @@ def calculate_kalman_filtered_trajectory(veh_df: pd.DataFrame, Q_t: np.ndarray,
     tmp_df = calculate_features(veh_df[~veh_df['missing']], fps)   
     feat_veh_df = veh_df.merge(tmp_df[['time', 'angle_estimation', 'angle_vel_estimation']], on=['time'], how='left')
     feat_veh_df = feat_veh_df.reset_index()
+    feat_veh_df['angle_estimation'] = feat_veh_df['angle_estimation'].interpolate(method='cubic')
+    feat_veh_df['angle_vel_estimation'] = feat_veh_df['angle_vel_estimation'].interpolate(method='cubic')
     C_t = np.diag([1, 1, 1, 1]).astype(np.float64)
     
     # Get time

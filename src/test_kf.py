@@ -30,7 +30,7 @@ from tools_kalman import calculate_kalman_filtered_trajectory
 BikeZ_Config = BikeZ_Config()
 
 # Specify Trajectory File
-date = BikeZ_Config.avail_dates[0]
+date = BikeZ_Config.avail_dates[1]
 campaign = f"Zurich_2025{date[5:7]}" # June or September
 mode = BikeZ_Config.avail_modes[0] # Bike
 data_root = BikeZ_Config.data_root[campaign][mode]
@@ -78,7 +78,7 @@ df = df.sort_values(by=['veh_id', 'time'], ascending=True)
 # MAIN: Test EKF for a single bike with missing data
 # #############################################################################
 
-sel_bike_id = 177 # 39 (with missing) # 299
+sel_bike_id = 269 # 39 (with missing) # 299
 bike_df = df[(df['veh_id'] == sel_bike_id)]
 bike_df = bike_df.sort_values(by='time', ascending=True)
 

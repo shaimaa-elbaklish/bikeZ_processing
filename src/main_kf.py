@@ -35,7 +35,7 @@ campaign = f"Zurich_2025{date[5:7]}"  # June or September
 mode = BikeZ_Config.avail_modes[0]  # Bike
 data_root = BikeZ_Config.data_root[campaign][mode]
 
-intersection, code = BikeZ_Config.avail_intersections[date][0]
+intersection, code = BikeZ_Config.avail_intersections[date][4]
 timeslot = BikeZ_Config.avail_timeslots[date][(intersection, code)][0] # 'AM1'
 
 XY_2056_Bounds = BikeZ_Config.XY_2056_Bounds[date][(intersection, code)]

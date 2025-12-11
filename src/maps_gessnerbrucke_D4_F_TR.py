@@ -81,19 +81,20 @@ Y_2056_offset = XY_2056_Bounds[1][0]
 # #############################################################################
 # MAIN: Load Data (Trajectories)
 # #############################################################################
-filename = f"trajectories_bikes_{date}_{intersection}_{timeslot}_{code}-1.csv"
+filename = f"trajectories_bikes_{date}_{intersection}_{timeslot}_{code}-1-ekf.csv"
 df = pd.read_csv(data_root + f"{date}/{intersection}/{filename}")
 df = df.dropna()
 
 # Convert from EPSG:2056 to EPSG:4326 (lat, lon)
-# df['x_act_ekf'] = df['x_ekf'] + X_2056_offset
-# df['y_act_ekf'] = df['y_ekf'] + Y_2056_offset
-# transformer = Transformer.from_crs("EPSG:2056", "EPSG:4326", always_xy=True)
-# df["lon_ekf"], df["lat_ekf"] = transformer.transform(
-#     df["x_act_ekf"].values, df["y_act_ekf"].values)
+df['x_act_ekf'] = df['x_ekf'] + X_2056_offset
+df['y_act_ekf'] = df['y_ekf'] + Y_2056_offset
+transformer = Transformer.from_crs("EPSG:2056", "EPSG:4326", always_xy=True)
+df["lon_ekf"], df["lat_ekf"] = transformer.transform(
+    df["x_act_ekf"].values, df["y_act_ekf"].values)
 
 # Create a folium map
-center_lat, center_lon = df.loc[df['latitude'] != -1, "latitude"].mean(), df.loc[df['longitude'] != -1, "longitude"].mean()
+# center_lat, center_lon = df.loc[df['latitude'] != -1, "latitude"].mean(), df.loc[df['longitude'] != -1, "longitude"].mean()
+center_lat, center_lon = df['lat_ekf'].mean(), df['lon_ekf'].mean()
 
 # #############################################################################
 # MAIN: Extract Remaining Centerlines from SwissTopo
@@ -166,10 +167,11 @@ splines_dict['N_2_W'] = spl
 # #############################################################################
 spl = fit_roadway_centerline_spline(
     centerl_Gessbrucke_WE + centerl_Gessnerallee_S)
-plot_spline_xy_2056(m, spl, label="Gessnerallee Centerline (N->S)",
+plot_spline_xy_2056(m, spl, label="Gessnerallee Centerline (W->S)",
                     linecolor=colors_dict['north'], linedashed=True, start_point=True)
 
 splines_dict['W_2_S'] = spl
+
 
 # #############################################################################
 # MAIN: Get Through West -> East Spline
@@ -196,7 +198,7 @@ splines_dict['E_2_W'] = spl
 # #############################################################################
 
 spl = fit_roadway_centerline_spline(
-    centerl_Gessnerallee_S[::-1] + centerl_Gessbrucke_EW, smoothing=0)
+    centerl_Gessnerallee_S[::-1] + centerl_Gessbrucke_EW, smoothing=0.25)
 plot_spline_xy_2056(m, spl, label="Gessnerallee Centerline (S->W)",
                     linecolor=colors_dict['north'], linedashed=True, start_point=True)
 
@@ -302,7 +304,6 @@ plot_all_centerlines_splines_xy_2056(m, splines_dict, add_layer_control=True)
 m.save(f"../maps/road_centerlines_map_{date}_{intersection}_{code}.html")
 
 
-sys.exit(1)
 m = create_swisstopo_map(center_lat=center_lat, center_lon=center_lon, add_layer_control=False)
 plot_all_centerlines_splines_xy_2056(m, splines_dict, add_layer_control=False)
 plot_bicycles_trajectories_xy_2056(
