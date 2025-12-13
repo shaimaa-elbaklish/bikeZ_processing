@@ -139,9 +139,10 @@ tck = tmp_spl[0]
 x_spline, y_spline = splev(np.linspace(0, 1, 50), tck)
 xy2 = np.column_stack((x_spline, y_spline))
 
-north_south_merged_coords, _, _ = connect_lines_g2(xy1, xy2, n_connector=120, verbose=True)
-spl = fit_roadway_centerline_spline(north_south_merged_coords, coordsys='2056')
-plot_spline_xy_2056(m, spl, label="Birmensdorferstrasse Centerline (N->S)", linecolor=colors_dict['north'], linedashed=True, start_point=True)
+#north_south_merged_coords, _, _ = connect_lines_g2(xy1, xy2, n_connector=120, verbose=True)
+#spl = fit_roadway_centerline_spline(north_south_merged_coords, coordsys='2056')
+spl = fit_roadway_centerline_spline(centerl_Schaufelbergerstrasse_North_NS + centerl_Schweighofstrasse_South_NS)
+plot_spline_xy_2056(m, spl, label="Schaufelbergerstrasse Centerline (N->S)", linecolor=colors_dict['north'], linedashed=True, start_point=True)
 
 splines_dict['N_2_S_A'] = spl
 
@@ -160,7 +161,7 @@ xy2 = np.column_stack((x_spline, y_spline))
 
 north_west_merged_coords, _, _ = connect_lines_g2(xy1, xy2, n_connector=120, verbose=True)
 spl = fit_roadway_centerline_spline(north_west_merged_coords, coordsys='2056')
-plot_spline_xy_2056(m, spl, label="Birmensdorferstrasse Centerline (N->W)", linecolor=colors_dict['north'], linedashed=True, start_point=True)
+plot_spline_xy_2056(m, spl, label="Schaufelbergerstrasse Centerline (N->W)", linecolor=colors_dict['north'], linedashed=True, start_point=True)
 
 splines_dict['N_2_W_A'] = spl
 
@@ -179,7 +180,7 @@ xy2 = np.column_stack((x_spline, y_spline))
 
 north_east_merged_coords, _, _ = connect_lines_g2(xy1, xy2, n_connector=120, verbose=True)
 spl = fit_roadway_centerline_spline(north_east_merged_coords, coordsys='2056')
-plot_spline_xy_2056(m, spl, label="Birmensdorferstrasse Centerline (N->E)", linecolor=colors_dict['north'], linedashed=True, start_point=True)
+plot_spline_xy_2056(m, spl, label="Schaufelbergerstrasse Centerline (N->E)", linecolor=colors_dict['north'], linedashed=True, start_point=True)
 
 splines_dict['N_2_E_A'] = spl
 
@@ -196,9 +197,10 @@ tck = tmp_spl[0]
 x_spline, y_spline = splev(np.linspace(0, 1, 50), tck)
 xy2 = np.column_stack((x_spline, y_spline))
 
-south_north_merged_coords, _, _ = connect_lines_g2(xy1, xy2, n_connector=120, verbose=True)
-spl = fit_roadway_centerline_spline(south_north_merged_coords, coordsys='2056')
-plot_spline_xy_2056(m, spl, label="Birmensdorferstrasse Centerline (S->N)", linecolor=colors_dict['south'], linedashed=True, start_point=True)
+#south_north_merged_coords, _, _ = connect_lines_g2(xy1, xy2, n_connector=120, verbose=True)
+#spl = fit_roadway_centerline_spline(south_north_merged_coords, coordsys='2056')
+spl = fit_roadway_centerline_spline(centerl_Schweighofstrasse_South_SN + centerl_Schaufelbergerstrasse_North_SN)
+plot_spline_xy_2056(m, spl, label="Schweighofstrasse Centerline (S->N)", linecolor=colors_dict['south'], linedashed=True, start_point=True)
 
 splines_dict['S_2_N_A'] = spl
 
@@ -217,7 +219,7 @@ xy2 = np.column_stack((x_spline, y_spline))
 
 south_east_merged_coords, _, _ = connect_lines_g2(xy1, xy2, n_connector=120, verbose=True)
 spl = fit_roadway_centerline_spline(south_east_merged_coords, coordsys='2056')
-plot_spline_xy_2056(m, spl, label="Birmensdorferstrasse Centerline (S->E)", linecolor=colors_dict['south'], linedashed=True, start_point=True)
+plot_spline_xy_2056(m, spl, label="Schweighofstrasse Centerline (S->E)", linecolor=colors_dict['south'], linedashed=True, start_point=True)
 
 splines_dict['S_2_E_A'] = spl
 
@@ -236,7 +238,7 @@ xy2 = np.column_stack((x_spline, y_spline))
 
 south_west_merged_coords, _, _ = connect_lines_g2(xy1, xy2, n_connector=120, verbose=True)
 spl = fit_roadway_centerline_spline(south_west_merged_coords, coordsys='2056')
-plot_spline_xy_2056(m, spl, label="Birmensdorferstrasse Centerline (S->W)", linecolor=colors_dict['south'], linedashed=True, start_point=True)
+plot_spline_xy_2056(m, spl, label="Schweighofstrasse Centerline (S->W)", linecolor=colors_dict['south'], linedashed=True, start_point=True)
 
 splines_dict['S_2_W_A'] = spl
 
@@ -253,8 +255,9 @@ tck = tmp_spl[0]
 x_spline, y_spline = splev(np.linspace(0, 1, 50), tck)
 xy2 = np.column_stack((x_spline, y_spline))
 
-east_west_merged_coords, _, _ = connect_lines_g2(xy1, xy2, n_connector=120, verbose=True)
-spl = fit_roadway_centerline_spline(east_west_merged_coords, coordsys='2056')
+#east_west_merged_coords, _, _ = connect_lines_g2(xy1, xy2, n_connector=120, verbose=True)
+#spl = fit_roadway_centerline_spline(east_west_merged_coords, coordsys='2056')
+spl = fit_roadway_centerline_spline(centerl_Birmensdorferstrasse_East_EW + centerl_Birmensdorferstrasse_West_EW)
 plot_spline_xy_2056(m, spl, label="Birmensdorferstrasse Centerline (E->W)", linecolor=colors_dict['east'], linedashed=True, start_point=True)
 
 splines_dict['E_2_W_A'] = spl
@@ -310,8 +313,9 @@ tck = tmp_spl[0]
 x_spline, y_spline = splev(np.linspace(0, 1, 50), tck)
 xy2 = np.column_stack((x_spline, y_spline))
 
-west_east_merged_coords, _, _ = connect_lines_g2(xy1, xy2, n_connector=120, verbose=True)
-spl = fit_roadway_centerline_spline(west_east_merged_coords, coordsys='2056')
+#west_east_merged_coords, _, _ = connect_lines_g2(xy1, xy2, n_connector=120, verbose=True)
+#spl = fit_roadway_centerline_spline(west_east_merged_coords, coordsys='2056')
+spl = fit_roadway_centerline_spline(centerl_Birmensdorferstrasse_West_WE + centerl_Birmensdorferstrasse_East_WE)
 plot_spline_xy_2056(m, spl, label="Birmensdorferstrasse Centerline (W->E)", linecolor=colors_dict['west'], linedashed=True, start_point=True)
 
 splines_dict['W_2_E_A'] = spl

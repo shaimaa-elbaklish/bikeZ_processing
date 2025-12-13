@@ -90,8 +90,8 @@ center_lat, center_lon = df["lat_ekf"].mean(), df["lon_ekf"].mean()
 # #############################################################################
 # MAIN: Extract Remaining Centerlines from SwissTopo
 # #############################################################################
-# Link to edit drawing: https://s.geo.admin.ch/6ykes6pqrlls
-# Share Link: https://s.geo.admin.ch/hir7a3z783yp
+# Link to edit drawing: https://s.geo.admin.ch/3pk66gebwl44
+# Share Link: https://s.geo.admin.ch/m8ydupby70e3
 
 
 kml_path = "../maps/from_swisstopo/birmensdorferstrasse_D2_F.kml"
@@ -102,14 +102,14 @@ gdf_swisstopo = gpd.read_file(kml_path, driver='KML')
 
 # Retrieving all relevant centerlines
 ...
-centerl_Herdenstrasse_North_NS = get_centerl_from_swisstopo(gdf_swisstopo, 'Herdenstrasse_North_NS')
-centerl_Herdenstrasse_North_SN = get_centerl_from_swisstopo(gdf_swisstopo, 'Herdenstrasse_North_SN')
-centerl_Bullingerstrasse_East_EW = get_centerl_from_swisstopo(gdf_swisstopo, 'Bullingerstrasse_East_EW')
-centerl_Bullingerstrasse_East_WE = get_centerl_from_swisstopo(gdf_swisstopo, 'Bullingerstrasse_East_WE')
-centerl_Herdenstrasse_South_SN = get_centerl_from_swisstopo(gdf_swisstopo, 'Herdenstrasse_South_SN')
-centerl_Herdenstrasse_South_NS = get_centerl_from_swisstopo(gdf_swisstopo, 'Herdenstrasse_South_NS')
-centerl_Baslerstrasse_West_WE = get_centerl_from_swisstopo(gdf_swisstopo, 'Baslerstrasse_West_WE')
-centerl_Baslerstrasse_West_EW = get_centerl_from_swisstopo(gdf_swisstopo, 'Baslerstrasse_West_EW')
+centerl_Gutstrasse_North_NS = get_centerl_from_swisstopo(gdf_swisstopo, 'Gutstrasse_North_NS')
+centerl_Gutstrasse_North_SN = get_centerl_from_swisstopo(gdf_swisstopo, 'Gutstrasse_North_SN')
+centerl_Birmensdorferstrasse_East_EW = get_centerl_from_swisstopo(gdf_swisstopo, 'Birmensdorferstrasse_East_EW')
+centerl_Birmensdorferstrasse_East_WE = get_centerl_from_swisstopo(gdf_swisstopo, 'Birmensdorferstrasse_East_WE')
+centerl_Talwiesenstrasse_South_SN = get_centerl_from_swisstopo(gdf_swisstopo, 'Talwiesenstrasse_South_SN')
+centerl_Talwiesenstrasse_South_NS = get_centerl_from_swisstopo(gdf_swisstopo, 'Talwiesenstrasse_South_NS')
+centerl_Birmensdorferstrasse_West_WE = get_centerl_from_swisstopo(gdf_swisstopo, 'Birmensdorferstrasse_West_WE')
+centerl_Birmensdorferstrasse_West_EW = get_centerl_from_swisstopo(gdf_swisstopo, 'Birmensdorferstrasse_West_EW')
 
 
 # #############################################################################
@@ -130,228 +130,232 @@ colors_dict = {
 # #############################################################################
 # MAIN: Get Through North -> South Spline
 # #############################################################################
-tmp_spl = fit_roadway_centerline_spline(centerl_Herdenstrasse_North_NS)
+tmp_spl = fit_roadway_centerline_spline(centerl_Gutstrasse_North_NS)
 tck = tmp_spl[0]
 x_spline, y_spline = splev(np.linspace(0, 1, 50), tck)
 xy1 = np.column_stack((x_spline, y_spline))
 
-tmp_spl = fit_roadway_centerline_spline(centerl_Herdenstrasse_South_NS)
+tmp_spl = fit_roadway_centerline_spline(centerl_Talwiesenstrasse_South_NS)
 tck = tmp_spl[0]
 x_spline, y_spline = splev(np.linspace(0, 1, 50), tck)
 xy2 = np.column_stack((x_spline, y_spline))
 
-north_south_merged_coords, _, _ = connect_lines_g2(xy1, xy2, n_connector=120, verbose=True)
-spl = fit_roadway_centerline_spline(north_south_merged_coords, coordsys='2056')
-plot_spline_xy_2056(m, spl, label="Herdenstrasse Centerline (N->S)", linecolor=colors_dict['north'], linedashed=True, start_point=True)
+#north_south_merged_coords, _, _ = connect_lines_g2(xy1, xy2, n_connector=120, verbose=True)
+#spl = fit_roadway_centerline_spline(north_south_merged_coords, coordsys='2056')
+spl = fit_roadway_centerline_spline(centerl_Gutstrasse_North_NS + centerl_Talwiesenstrasse_South_NS)
+plot_spline_xy_2056(m, spl, label="Gutstrasse Centerline (N->S)", linecolor=colors_dict['north'], linedashed=True, start_point=True)
 
 splines_dict['N_2_S_A'] = spl
 
 # #############################################################################
 # MAIN: Get Through North -> West Spline
 # #############################################################################
-tmp_spl = fit_roadway_centerline_spline(centerl_Herdenstrasse_North_NS)
+tmp_spl = fit_roadway_centerline_spline(centerl_Gutstrasse_North_NS)
 tck = tmp_spl[0]
 x_spline, y_spline = splev(np.linspace(0, 1, 50), tck)
 xy1 = np.column_stack((x_spline, y_spline))
 
-tmp_spl = fit_roadway_centerline_spline(centerl_Baslerstrasse_West_EW)
+tmp_spl = fit_roadway_centerline_spline(centerl_Birmensdorferstrasse_West_EW)
 tck = tmp_spl[0]
 x_spline, y_spline = splev(np.linspace(0, 1, 50), tck)
 xy2 = np.column_stack((x_spline, y_spline))
 
 north_west_merged_coords, _, _ = connect_lines_g2(xy1, xy2, n_connector=120, verbose=True)
 spl = fit_roadway_centerline_spline(north_west_merged_coords, coordsys='2056')
-plot_spline_xy_2056(m, spl, label="Herdenstrasse Centerline (N->W)", linecolor=colors_dict['north'], linedashed=True, start_point=True)
+plot_spline_xy_2056(m, spl, label="Gutstrasse Centerline (N->W)", linecolor=colors_dict['north'], linedashed=True, start_point=True)
 
 splines_dict['N_2_W_A'] = spl
 
 # #############################################################################
 # MAIN: Get Through North -> East Spline
 # #############################################################################
-tmp_spl = fit_roadway_centerline_spline(centerl_Herdenstrasse_North_NS)
+tmp_spl = fit_roadway_centerline_spline(centerl_Gutstrasse_North_NS)
 tck = tmp_spl[0]
 x_spline, y_spline = splev(np.linspace(0, 1, 50), tck)
 xy1 = np.column_stack((x_spline, y_spline))
 
-tmp_spl = fit_roadway_centerline_spline(centerl_Bullingerstrasse_East_WE)
+tmp_spl = fit_roadway_centerline_spline(centerl_Birmensdorferstrasse_East_WE)
 tck = tmp_spl[0]
 x_spline, y_spline = splev(np.linspace(0, 1, 50), tck)
 xy2 = np.column_stack((x_spline, y_spline))
 
 north_east_merged_coords, _, _ = connect_lines_g2(xy1, xy2, n_connector=120, verbose=True)
 spl = fit_roadway_centerline_spline(north_east_merged_coords, coordsys='2056')
-plot_spline_xy_2056(m, spl, label="Herdenstrasse Centerline (N->E)", linecolor=colors_dict['north'], linedashed=True, start_point=True)
+plot_spline_xy_2056(m, spl, label="Gutstrasse Centerline (N->E)", linecolor=colors_dict['north'], linedashed=True, start_point=True)
 
 splines_dict['N_2_E_A'] = spl
 
 # #############################################################################
 # MAIN: Get Through South -> North Spline
 # #############################################################################
-tmp_spl = fit_roadway_centerline_spline(centerl_Herdenstrasse_South_SN)
+tmp_spl = fit_roadway_centerline_spline(centerl_Talwiesenstrasse_South_SN)
 tck = tmp_spl[0]
 x_spline, y_spline = splev(np.linspace(0, 1, 50), tck)
 xy1 = np.column_stack((x_spline, y_spline))
 
-tmp_spl = fit_roadway_centerline_spline(centerl_Herdenstrasse_North_SN)
+tmp_spl = fit_roadway_centerline_spline(centerl_Gutstrasse_North_SN)
 tck = tmp_spl[0]
 x_spline, y_spline = splev(np.linspace(0, 1, 50), tck)
 xy2 = np.column_stack((x_spline, y_spline))
 
-south_north_merged_coords, _, _ = connect_lines_g2(xy1, xy2, n_connector=120, verbose=True)
-spl = fit_roadway_centerline_spline(south_north_merged_coords, coordsys='2056')
-plot_spline_xy_2056(m, spl, label="Herdenstrasse Centerline (S->N)", linecolor=colors_dict['south'], linedashed=True, start_point=True)
+#south_north_merged_coords, _, _ = connect_lines_g2(xy1, xy2, n_connector=120, verbose=True)
+#spl = fit_roadway_centerline_spline(south_north_merged_coords, coordsys='2056')
+spl = fit_roadway_centerline_spline(centerl_Talwiesenstrasse_South_SN + centerl_Gutstrasse_North_SN)
+plot_spline_xy_2056(m, spl, label="Talwiesenstrasse Centerline (S->N)", linecolor=colors_dict['south'], linedashed=True, start_point=True)
 
 splines_dict['S_2_N_A'] = spl
 
 # #############################################################################
 # MAIN: Get Through South -> East Spline
 # #############################################################################
-tmp_spl = fit_roadway_centerline_spline(centerl_Herdenstrasse_South_SN)
+tmp_spl = fit_roadway_centerline_spline(centerl_Talwiesenstrasse_South_SN)
 tck = tmp_spl[0]
 x_spline, y_spline = splev(np.linspace(0, 1, 50), tck)
 xy1 = np.column_stack((x_spline, y_spline))
 
-tmp_spl = fit_roadway_centerline_spline(centerl_Bullingerstrasse_East_WE)
+tmp_spl = fit_roadway_centerline_spline(centerl_Birmensdorferstrasse_East_WE)
 tck = tmp_spl[0]
 x_spline, y_spline = splev(np.linspace(0, 1, 50), tck)
 xy2 = np.column_stack((x_spline, y_spline))
 
 south_east_merged_coords, _, _ = connect_lines_g2(xy1, xy2, n_connector=120, verbose=True)
 spl = fit_roadway_centerline_spline(south_east_merged_coords, coordsys='2056')
-plot_spline_xy_2056(m, spl, label="Herdenstrasse Centerline (S->E)", linecolor=colors_dict['south'], linedashed=True, start_point=True)
+plot_spline_xy_2056(m, spl, label="Talwiesenstrasse Centerline (S->E)", linecolor=colors_dict['south'], linedashed=True, start_point=True)
 
 splines_dict['S_2_E_A'] = spl
 
 # #############################################################################
 # MAIN: Get Through South -> West Spline
 # #############################################################################
-tmp_spl = fit_roadway_centerline_spline(centerl_Herdenstrasse_South_SN)
+tmp_spl = fit_roadway_centerline_spline(centerl_Talwiesenstrasse_South_SN)
 tck = tmp_spl[0]
 x_spline, y_spline = splev(np.linspace(0, 1, 50), tck)
 xy1 = np.column_stack((x_spline, y_spline))
 
-tmp_spl = fit_roadway_centerline_spline(centerl_Baslerstrasse_West_EW)
+tmp_spl = fit_roadway_centerline_spline(centerl_Birmensdorferstrasse_West_EW)
 tck = tmp_spl[0]
 x_spline, y_spline = splev(np.linspace(0, 1, 50), tck)
 xy2 = np.column_stack((x_spline, y_spline))
 
 south_west_merged_coords, _, _ = connect_lines_g2(xy1, xy2, n_connector=120, verbose=True)
 spl = fit_roadway_centerline_spline(south_west_merged_coords, coordsys='2056')
-plot_spline_xy_2056(m, spl, label="Herdenstrasse Centerline (S->W)", linecolor=colors_dict['south'], linedashed=True, start_point=True)
+plot_spline_xy_2056(m, spl, label="Talwiesenstrasse Centerline (S->W)", linecolor=colors_dict['south'], linedashed=True, start_point=True)
 
 splines_dict['S_2_W_A'] = spl
 
 # #############################################################################
 # MAIN: Get Through East -> West Spline
 # #############################################################################
-tmp_spl = fit_roadway_centerline_spline(centerl_Bullingerstrasse_East_EW)
+tmp_spl = fit_roadway_centerline_spline(centerl_Birmensdorferstrasse_East_EW)
 tck = tmp_spl[0]
 x_spline, y_spline = splev(np.linspace(0, 1, 50), tck)
 xy1 = np.column_stack((x_spline, y_spline))
 
-tmp_spl = fit_roadway_centerline_spline(centerl_Baslerstrasse_West_EW)
+tmp_spl = fit_roadway_centerline_spline(centerl_Birmensdorferstrasse_West_EW)
 tck = tmp_spl[0]
 x_spline, y_spline = splev(np.linspace(0, 1, 50), tck)
 xy2 = np.column_stack((x_spline, y_spline))
 
-east_west_merged_coords, _, _ = connect_lines_g2(xy1, xy2, n_connector=120, verbose=True)
-spl = fit_roadway_centerline_spline(east_west_merged_coords, coordsys='2056')
-plot_spline_xy_2056(m, spl, label="Herdenstrasse Centerline (E->W)", linecolor=colors_dict['east'], linedashed=True, start_point=True)
+#east_west_merged_coords, _, _ = connect_lines_g2(xy1, xy2, n_connector=120, verbose=True)
+#spl = fit_roadway_centerline_spline(east_west_merged_coords, coordsys='2056')
+spl = fit_roadway_centerline_spline(centerl_Birmensdorferstrasse_East_EW + centerl_Birmensdorferstrasse_West_EW)
+plot_spline_xy_2056(m, spl, label="Birmensdorferstrasse Centerline (E->W)", linecolor=colors_dict['east'], linedashed=True, start_point=True)
 
 splines_dict['E_2_W_A'] = spl
 
 # #############################################################################
 # MAIN: Get Through East -> North Spline
 # #############################################################################
-tmp_spl = fit_roadway_centerline_spline(centerl_Bullingerstrasse_East_EW)
+tmp_spl = fit_roadway_centerline_spline(centerl_Birmensdorferstrasse_East_EW)
 tck = tmp_spl[0]
 x_spline, y_spline = splev(np.linspace(0, 1, 50), tck)
 xy1 = np.column_stack((x_spline, y_spline))
 
-tmp_spl = fit_roadway_centerline_spline(centerl_Herdenstrasse_North_SN)
+tmp_spl = fit_roadway_centerline_spline(centerl_Gutstrasse_North_SN)
 tck = tmp_spl[0]
 x_spline, y_spline = splev(np.linspace(0, 1, 50), tck)
 xy2 = np.column_stack((x_spline, y_spline))
 
 east_north_merged_coords, _, _ = connect_lines_g2(xy1, xy2, n_connector=120, verbose=True)
 spl = fit_roadway_centerline_spline(east_north_merged_coords, coordsys='2056')
-plot_spline_xy_2056(m, spl, label="Herdenstrasse Centerline (E->N)", linecolor=colors_dict['east'], linedashed=True, start_point=True)
+plot_spline_xy_2056(m, spl, label="Birmensdorferstrasse Centerline (E->N)", linecolor=colors_dict['east'], linedashed=True, start_point=True)
 
 splines_dict['E_2_N_A'] = spl
 
 # #############################################################################
 # MAIN: Get Through East -> South Spline
 # #############################################################################
-tmp_spl = fit_roadway_centerline_spline(centerl_Bullingerstrasse_East_EW)
+tmp_spl = fit_roadway_centerline_spline(centerl_Birmensdorferstrasse_East_EW)
 tck = tmp_spl[0]
 x_spline, y_spline = splev(np.linspace(0, 1, 50), tck)
 xy1 = np.column_stack((x_spline, y_spline))
 
-tmp_spl = fit_roadway_centerline_spline(centerl_Herdenstrasse_South_NS)
+tmp_spl = fit_roadway_centerline_spline(centerl_Talwiesenstrasse_South_NS)
 tck = tmp_spl[0]
 x_spline, y_spline = splev(np.linspace(0, 1, 50), tck)
 xy2 = np.column_stack((x_spline, y_spline))
 
 east_south_merged_coords, _, _ = connect_lines_g2(xy1, xy2, n_connector=120, verbose=True)
 spl = fit_roadway_centerline_spline(east_south_merged_coords, coordsys='2056')
-plot_spline_xy_2056(m, spl, label="Herdenstrasse Centerline (E->S)", linecolor=colors_dict['east'], linedashed=True, start_point=True)
+plot_spline_xy_2056(m, spl, label="Birmensdorferstrasse Centerline (E->S)", linecolor=colors_dict['east'], linedashed=True, start_point=True)
 
 splines_dict['E_2_S_A'] = spl
 
 # #############################################################################
 # MAIN: Get Through West -> East Spline
 # #############################################################################
-tmp_spl = fit_roadway_centerline_spline(centerl_Baslerstrasse_West_WE)
+tmp_spl = fit_roadway_centerline_spline(centerl_Birmensdorferstrasse_West_WE)
 tck = tmp_spl[0]
 x_spline, y_spline = splev(np.linspace(0, 1, 50), tck)
 xy1 = np.column_stack((x_spline, y_spline))
 
-tmp_spl = fit_roadway_centerline_spline(centerl_Bullingerstrasse_East_WE)
+tmp_spl = fit_roadway_centerline_spline(centerl_Birmensdorferstrasse_East_WE)
 tck = tmp_spl[0]
 x_spline, y_spline = splev(np.linspace(0, 1, 50), tck)
 xy2 = np.column_stack((x_spline, y_spline))
 
-west_east_merged_coords, _, _ = connect_lines_g2(xy1, xy2, n_connector=120, verbose=True)
-spl = fit_roadway_centerline_spline(west_east_merged_coords, coordsys='2056')
-plot_spline_xy_2056(m, spl, label="Herdenstrasse Centerline (W->E)", linecolor=colors_dict['west'], linedashed=True, start_point=True)
+#west_east_merged_coords, _, _ = connect_lines_g2(xy1, xy2, n_connector=120, verbose=True)
+#spl = fit_roadway_centerline_spline(west_east_merged_coords, coordsys='2056')
+spl = fit_roadway_centerline_spline(centerl_Birmensdorferstrasse_West_WE + centerl_Birmensdorferstrasse_East_WE)
+plot_spline_xy_2056(m, spl, label="Birmensdorferstrasse Centerline (W->E)", linecolor=colors_dict['west'], linedashed=True, start_point=True)
 
 splines_dict['W_2_E_A'] = spl
 
 # #############################################################################
 # MAIN: Get Through West -> South Spline
 # #############################################################################
-tmp_spl = fit_roadway_centerline_spline(centerl_Baslerstrasse_West_WE)
+tmp_spl = fit_roadway_centerline_spline(centerl_Birmensdorferstrasse_West_WE)
 tck = tmp_spl[0]
 x_spline, y_spline = splev(np.linspace(0, 1, 50), tck)
 xy1 = np.column_stack((x_spline, y_spline))
 
-tmp_spl = fit_roadway_centerline_spline(centerl_Herdenstrasse_South_NS)
+tmp_spl = fit_roadway_centerline_spline(centerl_Talwiesenstrasse_South_NS)
 tck = tmp_spl[0]
 x_spline, y_spline = splev(np.linspace(0, 1, 50), tck)
 xy2 = np.column_stack((x_spline, y_spline))
 
 west_south_merged_coords, _, _ = connect_lines_g2(xy1, xy2, n_connector=120, verbose=True)
 spl = fit_roadway_centerline_spline(west_south_merged_coords, coordsys='2056')
-plot_spline_xy_2056(m, spl, label="Herdenstrasse Centerline (W->S)", linecolor=colors_dict['west'], linedashed=True, start_point=True)
+plot_spline_xy_2056(m, spl, label="Birmensdorferstrasse Centerline (W->S)", linecolor=colors_dict['west'], linedashed=True, start_point=True)
 
 splines_dict['W_2_S_A'] = spl
 
 # #############################################################################
 # MAIN: Get Through West -> North Spline
 # #############################################################################
-tmp_spl = fit_roadway_centerline_spline(centerl_Baslerstrasse_West_WE)
+tmp_spl = fit_roadway_centerline_spline(centerl_Birmensdorferstrasse_West_WE)
 tck = tmp_spl[0]
 x_spline, y_spline = splev(np.linspace(0, 1, 50), tck)
 xy1 = np.column_stack((x_spline, y_spline))
 
-tmp_spl = fit_roadway_centerline_spline(centerl_Herdenstrasse_North_SN)
+tmp_spl = fit_roadway_centerline_spline(centerl_Gutstrasse_North_SN)
 tck = tmp_spl[0]
 x_spline, y_spline = splev(np.linspace(0, 1, 50), tck)
 xy2 = np.column_stack((x_spline, y_spline))
 
 west_north_merged_coords, _, _ = connect_lines_g2(xy1, xy2, n_connector=120, verbose=True)
 spl = fit_roadway_centerline_spline(west_north_merged_coords, coordsys='2056')
-plot_spline_xy_2056(m, spl, label="Herdenstrasse Centerline (W->N)", linecolor=colors_dict['west'], linedashed=True, start_point=True)
+plot_spline_xy_2056(m, spl, label="Birmensdorferstrasse Centerline (W->N)", linecolor=colors_dict['west'], linedashed=True, start_point=True)
 
 splines_dict['W_2_N_A'] = spl
 
@@ -387,27 +391,27 @@ m.save(f"../maps/trajectories_map_{date}_{intersection}_{timeslot}_{code}.html")
 # #############################################################################
 lane_boundaries_splines_dict = {}
 
-bike_lb_spl = fit_roadway_centerline_spline(centerl_Herdenstrasse_North_NS, smoothing=0.1) # tuple (tck, unew, cum_dist)
-lane_boundaries_splines_dict['N_SB'] = bike_lb_spl
-
-bike_lb_spl = fit_roadway_centerline_spline(centerl_Herdenstrasse_North_SN, smoothing=0.1) # tuple (tck, unew, cum_dist)
+bike_lb_spl = fit_roadway_centerline_spline(centerl_Gutstrasse_North_SN, smoothing=0.1) # tuple (tck, unew, cum_dist)
 lane_boundaries_splines_dict['N_NB'] = bike_lb_spl
 
-bike_lb_spl = fit_roadway_centerline_spline(centerl_Herdenstrasse_South_SN, smoothing=0.1) # tuple (tck, unew, cum_dist)
+bike_lb_spl = fit_roadway_centerline_spline(centerl_Talwiesenstrasse_South_SN, smoothing=0.1) # tuple (tck, unew, cum_dist)
 lane_boundaries_splines_dict['S_NB'] = bike_lb_spl
 
-bike_lb_spl = fit_roadway_centerline_spline(centerl_Herdenstrasse_South_NS, smoothing=0.1) # tuple (tck, unew, cum_dist)
-lane_boundaries_splines_dict['S_SB'] = bike_lb_spl
+bike_lb_spl = fit_roadway_centerline_spline(centerl_Birmensdorferstrasse_East_EW, smoothing=0.1) # tuple (tck, unew, cum_dist)
+lane_boundaries_splines_dict['E_WB'] = bike_lb_spl
 
-bike_lb_spl = fit_roadway_centerline_spline(centerl_Baslerstrasse_West_WE, smoothing=0.1) # tuple (tck, unew, cum_dist)
+bike_lb_spl = fit_roadway_centerline_spline(centerl_Birmensdorferstrasse_East_WE, smoothing=0.1) # tuple (tck, unew, cum_dist)
+lane_boundaries_splines_dict['E_EB'] = bike_lb_spl
+
+bike_lb_spl = fit_roadway_centerline_spline(centerl_Birmensdorferstrasse_West_WE, smoothing=0.1) # tuple (tck, unew, cum_dist)
 lane_boundaries_splines_dict['W_EB'] = bike_lb_spl
 
-bike_lb_spl = fit_roadway_centerline_spline(centerl_Baslerstrasse_West_EW, smoothing=0.1) # tuple (tck, unew, cum_dist)
+bike_lb_spl = fit_roadway_centerline_spline(centerl_Birmensdorferstrasse_West_EW, smoothing=0.1) # tuple (tck, unew, cum_dist)
 lane_boundaries_splines_dict['W_WB'] = bike_lb_spl
 
 # Identify the rest (i.e. without boundaries) as "bicycles" or "cars" or "mixed"
-lane_boundaries_splines_dict['E_EB'] = "mixed"
-lane_boundaries_splines_dict['E_WB'] = "mixed"
+lane_boundaries_splines_dict['N_SB'] = "mixed"
+lane_boundaries_splines_dict['S_SB'] = "mixed"
 
 # Save
 with open(f"../data/bike_lane_boundaries_splines_{date}_{intersection}.pkl", "wb") as f:
