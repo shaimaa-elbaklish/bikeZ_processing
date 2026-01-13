@@ -100,7 +100,7 @@ center_lat, center_lon = df["lat_ekf"].mean(), df["lon_ekf"].mean()
 # MAIN: Extract Remaining Centerlines from SwissTopo
 # #############################################################################
 # Link to edit drawing: https://map.geo.admin.ch/#/map?lang=en&center=2682815.13,1247903.71&z=13&topic=ech&layers=ch.swisstopo.zeitreihen@year=1864,f;ch.bfs.gebaeude_wohnungs_register,f;ch.bav.haltestellen-oev,f;ch.swisstopo.swisstlm3d-wanderwege,f;ch.vbs.schiessanzeigen,f;ch.astra.wanderland-sperrungen_umleitungen,f;KML%7Chttps://public.geo.admin.ch/api/kml/files/NUSEuRoGT_mOVN1edWFbEw,f;KML%7Chttps://public.geo.admin.ch/api/kml/files/AMdLJu9mRei9FqSDEVx51Q@adminId=vezMDMwQT0axzF76Z2JYjw&bgLayer=ch.swisstopo.swissimage&featureInfo=default
-# Share Link: https://s.geo.admin.ch/jkfynb8vzf5w
+# Share Link: https://s.geo.admin.ch/me9562bvpx3u
 
 
 kml_path = "../maps/from_swisstopo/gessnerbrucke_D4_F.kml"
