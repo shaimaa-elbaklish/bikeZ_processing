@@ -30,12 +30,12 @@ warnings.filterwarnings("ignore")
 BikeZ_Config = BikeZ_Config()
 
 # Specify Trajectory File
-date = BikeZ_Config.avail_dates[0]
+date = BikeZ_Config.avail_dates[3]
 campaign = f"Zurich_2025{date[5:7]}"  # June or September
 mode = BikeZ_Config.avail_modes[0]  # Bike
 data_root = BikeZ_Config.data_root[campaign][mode]
 
-intersection, code = BikeZ_Config.avail_intersections[date][4]
+intersection, code = BikeZ_Config.avail_intersections[date][3]
 timeslot = BikeZ_Config.avail_timeslots[date][(intersection, code)][0] # 'AM1'
 
 XY_2056_Bounds = BikeZ_Config.XY_2056_Bounds[date][(intersection, code)]
@@ -99,8 +99,7 @@ for veh_id in tqdm(unique_ids, desc="Processing EKF on Bicycles"):
         filt_df = pd.concat((filt_df, veh_df), ignore_index=True)
     gc.collect()
 
-filename = f"trajectories_bikes_{date}_{
-    intersection}_{timeslot}_{code}-1-ekf.csv"
+filename = f"trajectories_bikes_{date}_{intersection}_{timeslot}_{code}-1-ekf.csv"
 filt_df.to_csv(data_root + f"{date}/{intersection}/{filename}", index=False)
 
 # filename = f"trajectories_bikes_{date}_{intersection}_{time_slot}_{code}-1-ekf.csv"

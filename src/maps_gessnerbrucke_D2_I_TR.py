@@ -83,12 +83,12 @@ def get_clothoid_spl(centerl1, centerl2, nb_splev=50, nb_connectors=120):
 BikeZ_Config = BikeZ_Config()
 
 # Specify Trajectory File
-date = BikeZ_Config.avail_dates[0]
+date = BikeZ_Config.avail_dates[3]
 campaign = f"Zurich_2025{date[5:7]}"  # June or September
 mode = BikeZ_Config.avail_modes[0]  # Bike
 data_root = BikeZ_Config.data_root[campaign][mode]
 
-intersection, code = BikeZ_Config.avail_intersections[date][4]
+intersection, code = BikeZ_Config.avail_intersections[date][3]
 timeslot = BikeZ_Config.avail_timeslots[date][(intersection, code)][0]  # 'AM1'
 
 XY_2056_Bounds = BikeZ_Config.XY_2056_Bounds[date][(intersection, code)]
@@ -110,37 +110,38 @@ df["lon_ekf"], df["lat_ekf"] = transformer.transform(
     df["x_act_ekf"].values, df["y_act_ekf"].values)
 
 # Create a folium map
-# center_lat, center_lon = df.loc[df['latitude'] != -1, "latitude"].mean(), df.loc[df['longitude'] != -1, "longitude"].mean()
 center_lat, center_lon = df['lat_ekf'].mean(), df['lon_ekf'].mean()
 
 # #############################################################################
 # MAIN: Extract Remaining Centerlines from SwissTopo
 # #############################################################################
-# Link to edit drawing: https://map.geo.admin.ch/#/map?lang=en&center=2682815.13,1247903.71&z=13&topic=ech&layers=ch.swisstopo.zeitreihen@year=1864,f;ch.bfs.gebaeude_wohnungs_register,f;ch.bav.haltestellen-oev,f;ch.swisstopo.swisstlm3d-wanderwege,f;ch.vbs.schiessanzeigen,f;ch.astra.wanderland-sperrungen_umleitungen,f;KML%7Chttps://public.geo.admin.ch/api/kml/files/NUSEuRoGT_mOVN1edWFbEw,f;KML%7Chttps://public.geo.admin.ch/api/kml/files/AMdLJu9mRei9FqSDEVx51Q@adminId=vezMDMwQT0axzF76Z2JYjw&bgLayer=ch.swisstopo.swissimage&featureInfo=default
-# Share Link: https://s.geo.admin.ch/me9562bvpx3u
+# Link to edit drawing: https://s.geo.admin.ch/j4wbhglg3dho
+# Share Link: https://s.geo.admin.ch/x53ayo8k4j65
 
 
-kml_path = "../maps/from_swisstopo/gessnerbrucke_D4_F.kml"
+kml_path = "../maps/from_swisstopo/baslerstrasse_D2_I.kml"
 gdf_swisstopo = gpd.read_file(kml_path, driver='KML')
 
-row = gdf_swisstopo[gdf_swisstopo['description'] == 'Observed_Area'].copy()
-observed_area_polygon = row.geometry.item()
+# row = gdf_swisstopo[gdf_swisstopo['description'] == 'Observed_Area'].copy()
+# observed_area_polygon = row.geometry.item()
 
 # Retrieving all relevant centerlines
-centerl_Gessnerallee_NS = get_centerl_from_swisstopo(
-    gdf_swisstopo, 'Gessnerallee_NS')
-centerl_Gessnerallee_S_V = get_centerl_from_swisstopo(
-    gdf_swisstopo, 'Gessnerallee_S_V')
-centerl_Gessnerallee_S_B = get_centerl_from_swisstopo(
-    gdf_swisstopo, 'Gessnerallee_S_B')
-centerl_Gessbrucke_EW = get_centerl_from_swisstopo(
-    gdf_swisstopo, 'Gessnerbrucke_EW')
-centerl_Gessbrucke_WE = get_centerl_from_swisstopo(
-    gdf_swisstopo, 'Gessnerbrucke_WE')
-centerl_Usteristrasse_WE = get_centerl_from_swisstopo(
-    gdf_swisstopo, 'Usteristrasse_WE')
-centerl_Usteristrasse_EW = get_centerl_from_swisstopo(
-    gdf_swisstopo, 'Usteristrasse_EW')
+centerl_Baslerstrasse_East_EW = get_centerl_from_swisstopo(
+    gdf_swisstopo, 'Baslerstrasse_East_EW')
+centerl_Baslerstrasse_East_WE = get_centerl_from_swisstopo(
+    gdf_swisstopo, 'Baslerstrasse_East_WE')
+centerl_Baslerstrasse_West_EW = get_centerl_from_swisstopo(
+    gdf_swisstopo, 'Baslerstrasse_West_EW')
+centerl_Baslerstrasse_West_WE = get_centerl_from_swisstopo(
+    gdf_swisstopo, 'Baslerstrasse_West_WE')
+centerl_Flurstrasse_North_SN = get_centerl_from_swisstopo(
+    gdf_swisstopo, 'Flurstrasse_North_SN')
+centerl_Flurstrasse_North_NS = get_centerl_from_swisstopo(
+    gdf_swisstopo, 'Flurstrasse_North_NS')
+centerl_Flurstrasse_South_NS = get_centerl_from_swisstopo(
+    gdf_swisstopo, 'Flurstrasse_South_NS')
+centerl_Flurstrasse_South_SN = get_centerl_from_swisstopo(
+    gdf_swisstopo, 'Flurstrasse_South_SN')
 
 # centerline = centerline.intersection(observed_area_polygon)
 
@@ -166,75 +167,124 @@ colors_dict = {
 # #############################################################################
 # spl = fit_roadway_centerline_spline(
 #     centerl_Gessnerallee_NS + centerl_Gessnerallee_S)
-spl = get_clothoid_spl(centerl_Gessnerallee_NS, centerl_Gessnerallee_S_V)
+spl = get_clothoid_spl(centerl_Flurstrasse_North_NS, centerl_Flurstrasse_South_NS)
 plot_spline_xy_2056(m, spl, label="Gessnerallee Centerline (N->S)",
                     linecolor=colors_dict['north'], linedashed=True, start_point=True)
 
-splines_dict['N_2_S_V'] = spl
+splines_dict['N_2_S'] = spl
 
 # #############################################################################
 # MAIN: Get Through North -> West Spline
 # #############################################################################
 spl = get_clothoid_spl(
-    centerl_Gessnerallee_NS, centerl_Gessbrucke_EW)
+    centerl_Flurstrasse_North_NS, centerl_Baslerstrasse_West_EW)
 plot_spline_xy_2056(m, spl, label="Gessnerallee Centerline (N->S)",
                     linecolor=colors_dict['north'], linedashed=True, start_point=True)
 
 splines_dict['N_2_W'] = spl
 
 # #############################################################################
+# MAIN: Get Through North -> West Spline
+# #############################################################################
+spl = get_clothoid_spl(
+    centerl_Flurstrasse_North_NS, centerl_Baslerstrasse_East_WE)
+plot_spline_xy_2056(m, spl, label="Gessnerallee Centerline (N->S)",
+                    linecolor=colors_dict['north'], linedashed=True, start_point=True)
+
+splines_dict['N_2_E'] = spl
+
+# #############################################################################
 # MAIN: Get Through West -> South Spline
 # #############################################################################
 spl = get_clothoid_spl(
-    centerl_Gessbrucke_WE, centerl_Gessnerallee_S_V)
+    centerl_Baslerstrasse_West_WE, centerl_Flurstrasse_South_NS)
 plot_spline_xy_2056(m, spl, label="Gessnerallee Centerline (W->S)",
                     linecolor=colors_dict['north'], linedashed=True, start_point=True)
 
-splines_dict['W_2_S_V'] = spl
-
-# #############################################################################
-# MAIN: Get Through West -> South Spline
-# #############################################################################
-spl = get_clothoid_spl(
-    centerl_Gessbrucke_WE, centerl_Gessnerallee_S_B)
-plot_spline_xy_2056(m, spl, label="Gessnerallee Centerline (W->S)",
-                    linecolor=colors_dict['north'], linedashed=True, start_point=True)
-
-splines_dict['W_2_S_B'] = spl
+splines_dict['W_2_S'] = spl
 
 # #############################################################################
 # MAIN: Get Through West -> East Spline
 # #############################################################################
 spl = get_clothoid_spl(
-    centerl_Gessbrucke_WE, centerl_Usteristrasse_WE)
+    centerl_Baslerstrasse_West_WE, centerl_Baslerstrasse_East_WE)
 plot_spline_xy_2056(m, spl, label="Gessnerallee Centerline (N->S)",
                     linecolor=colors_dict['north'], linedashed=True, start_point=True)
 
 splines_dict['W_2_E'] = spl
 
 # #############################################################################
+# MAIN: Get Through West -> East Spline
+# #############################################################################
+spl = get_clothoid_spl(
+    centerl_Baslerstrasse_West_WE, centerl_Flurstrasse_North_SN)
+plot_spline_xy_2056(m, spl, label="Gessnerallee Centerline (N->S)",
+                    linecolor=colors_dict['north'], linedashed=True, start_point=True)
+
+splines_dict['W_2_N'] = spl
+
+# #############################################################################
 # MAIN: Get Through East -> West Spline
 # #############################################################################
 spl = get_clothoid_spl(
-    centerl_Usteristrasse_EW, centerl_Gessbrucke_EW)
+    centerl_Baslerstrasse_East_EW, centerl_Baslerstrasse_West_EW)
 plot_spline_xy_2056(m, spl, label="Gessnerallee Centerline (N->S)",
                     linecolor=colors_dict['north'], linedashed=True, start_point=True)
 
 splines_dict['E_2_W'] = spl
 
 # #############################################################################
+# MAIN: Get Through East -> West Spline
+# #############################################################################
+spl = get_clothoid_spl(
+    centerl_Baslerstrasse_East_EW, centerl_Flurstrasse_North_SN)
+plot_spline_xy_2056(m, spl, label="Gessnerallee Centerline (N->S)",
+                    linecolor=colors_dict['north'], linedashed=True, start_point=True)
+
+splines_dict['E_2_N'] = spl
+
+# #############################################################################
+# MAIN: Get Through East -> West Spline
+# #############################################################################
+spl = get_clothoid_spl(
+    centerl_Baslerstrasse_East_EW, centerl_Flurstrasse_South_NS)
+plot_spline_xy_2056(m, spl, label="Gessnerallee Centerline (N->S)",
+                    linecolor=colors_dict['north'], linedashed=True, start_point=True)
+
+splines_dict['E_2_S'] = spl
+
+# #############################################################################
 # MAIN: Get Through South -> West Spline
 # #############################################################################
 
 spl = get_clothoid_spl(
-    centerl_Gessnerallee_S_B[::-1], centerl_Gessbrucke_EW)
+    centerl_Flurstrasse_South_SN, centerl_Baslerstrasse_West_EW)
 plot_spline_xy_2056(m, spl, label="Gessnerallee Centerline (S->W)",
                     linecolor=colors_dict['north'], linedashed=True, start_point=True)
 
-plot_line_latlon(m, centerl_Gessnerallee_S_V, label="Gessnerallee (S)", linecolor='red', linedashed=False, start_point=True)
-plot_line_latlon(m, centerl_Gessbrucke_EW, label="Gessnerbrucke (E->W)", linecolor='red', linedashed=False, start_point=True)
-
 splines_dict['S_2_W'] = spl
+
+# #############################################################################
+# MAIN: Get Through South -> West Spline
+# #############################################################################
+
+spl = get_clothoid_spl(
+    centerl_Flurstrasse_South_SN, centerl_Flurstrasse_North_SN)
+plot_spline_xy_2056(m, spl, label="Gessnerallee Centerline (S->W)",
+                    linecolor=colors_dict['north'], linedashed=True, start_point=True)
+
+splines_dict['S_2_N'] = spl
+
+# #############################################################################
+# MAIN: Get Through South -> West Spline
+# #############################################################################
+
+spl = get_clothoid_spl(
+    centerl_Flurstrasse_South_SN, centerl_Baslerstrasse_East_WE)
+plot_spline_xy_2056(m, spl, label="Gessnerallee Centerline (S->W)",
+                    linecolor=colors_dict['north'], linedashed=True, start_point=True)
+
+splines_dict['S_2_E'] = spl
 
 # #############################################################################
 # MAIN: Saving Map and Splines
@@ -268,26 +318,32 @@ m.save(
 # #############################################################################
 lane_boundaries_splines_dict = {}
 
-bike_lb_spl = fit_roadway_centerline_spline(centerl_Gessbrucke_EW, smoothing=0.1) # tuple (tck, unew, cum_dist)
+bike_lb_spl = fit_roadway_centerline_spline(centerl_Baslerstrasse_West_EW, smoothing=0.1) # tuple (tck, unew, cum_dist)
 lane_boundaries_splines_dict['W_WB'] = bike_lb_spl
 
-bike_lb_spl = fit_roadway_centerline_spline(centerl_Gessbrucke_WE, smoothing=0.1) # tuple (tck, unew, cum_dist)
+bike_lb_spl = fit_roadway_centerline_spline(centerl_Baslerstrasse_West_WE, smoothing=0.1) # tuple (tck, unew, cum_dist)
 lane_boundaries_splines_dict['W_EB'] = bike_lb_spl
 
-bike_lb_spl = fit_roadway_centerline_spline(centerl_Gessnerallee_NS , smoothing=0.1) # tuple (tck, unew, cum_dist)
+bike_lb_spl = fit_roadway_centerline_spline(centerl_Flurstrasse_North_NS, smoothing=0.1) # tuple (tck, unew, cum_dist)
 lane_boundaries_splines_dict['N_SB'] = bike_lb_spl
 
-bike_lb_spl = fit_roadway_centerline_spline(centerl_Gessnerallee_S_B, smoothing=0.1) # tuple (tck, unew, cum_dist)
+bike_lb_spl = fit_roadway_centerline_spline(centerl_Flurstrasse_North_SN, smoothing=0.1) # tuple (tck, unew, cum_dist)
+lane_boundaries_splines_dict['N_NB'] = bike_lb_spl
+
+bike_lb_spl = fit_roadway_centerline_spline(centerl_Flurstrasse_South_NS, smoothing=0.1) # tuple (tck, unew, cum_dist)
 lane_boundaries_splines_dict['S_SB'] = bike_lb_spl
 
-bike_lb_spl = fit_roadway_centerline_spline(centerl_Usteristrasse_EW, smoothing=0.1) # tuple (tck, unew, cum_dist)
+bike_lb_spl = fit_roadway_centerline_spline(centerl_Flurstrasse_South_SN, smoothing=0.1) # tuple (tck, unew, cum_dist)
+lane_boundaries_splines_dict['S_NB'] = bike_lb_spl
+
+bike_lb_spl = fit_roadway_centerline_spline(centerl_Baslerstrasse_East_EW, smoothing=0.1) # tuple (tck, unew, cum_dist)
 lane_boundaries_splines_dict['E_WB'] = bike_lb_spl
 
-bike_lb_spl = fit_roadway_centerline_spline(centerl_Usteristrasse_WE, smoothing=0.1) # tuple (tck, unew, cum_dist)
+bike_lb_spl = fit_roadway_centerline_spline(centerl_Baslerstrasse_East_WE, smoothing=0.1) # tuple (tck, unew, cum_dist)
 lane_boundaries_splines_dict['E_EB'] = bike_lb_spl
 
 # Identify the rest (i.e. without boundaries) as "bicycles" or "cars" or "mixed"
-lane_boundaries_splines_dict['E_WB'] = "mixed"
+# lane_boundaries_splines_dict['E_WB'] = "mixed"
 
 # Save
 with open(f"../data/bike_lane_boundaries_splines_{date}_{intersection}.pkl", "wb") as f:
