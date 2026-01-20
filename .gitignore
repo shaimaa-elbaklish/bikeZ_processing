@@ -11,6 +11,7 @@ src/__pycache__/tools_kalman.cpython-312.pyc
 .idea/misc.xml
 .idea/bikeZ_analysis.iml
 debugging/
+figures/
 cache/20cf28acce6d9c03a4616c4fbcbe8651ef534e6d.json
 cache/c157f88be120045d758cf1f3833904346ceac868.json
 *.pyc

@@ -40,7 +40,8 @@ mode = BikeZ_Config.avail_modes[0] # Bike
 data_root = BikeZ_Config.data_root[campaign][mode]
 
 intersection, code = BikeZ_Config.avail_intersections[date][3]
-timeslot = BikeZ_Config.avail_timeslots[date][(intersection, code)][0] # 'AM1'
+timeslot = BikeZ_Config.avail_timeslots[date][(intersection, code)][11] # 'AM1'
+# PM1 133 centerline_id=nan
 
 XY_2056_Bounds = BikeZ_Config.XY_2056_Bounds[date][(intersection, code)]
 X_2056_offset = XY_2056_Bounds[0][0]
@@ -182,7 +183,7 @@ for bike_id in tqdm(unique_ids, desc="Processing Coordinate Transform on Bicycle
         mod_df = pd.concat((mod_df, bike_df), ignore_index=True)
 
 filename = f"trajectories_bikes_{date}_{intersection}_{timeslot}_{code}-1-ekf-lane.csv"
-mod_df.to_csv(BikeZ_Config.data_root + f"{date}/{intersection}/{filename}", index=False)
+mod_df.to_csv(data_root + f"{date}/{intersection}/{filename}", index=False)
 
 # #############################################################################
 # MAIN: Plot Coordinate Transform for ALL Bicycles

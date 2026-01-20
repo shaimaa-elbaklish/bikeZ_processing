@@ -44,23 +44,34 @@ from tools_map_visualization import plot_bicycles_trajectories_xy_2056
 # #############################################################################
 # CONSTANTS
 # #############################################################################
+# Configuration
+BikeZ_Config = BikeZ_Config()
+
+# Specify Trajectory File
 date = BikeZ_Config.avail_dates[0]
-intersection = BikeZ_Config.avail_intersections[2]
-time_slot = 'AM1'
-code= 'E'
+campaign = f"Zurich_2025{date[5:7]}"  # June or September
+mode = BikeZ_Config.avail_modes[0]  # Bike
+data_root = BikeZ_Config.data_root[campaign][mode]
+
+intersection, code = BikeZ_Config.avail_intersections[date][3]
+timeslot = BikeZ_Config.avail_timeslots[date][(intersection, code)][0] # 'AM1'
+
+XY_2056_Bounds = BikeZ_Config.XY_2056_Bounds[date][(intersection, code)]
+X_2056_offset = XY_2056_Bounds[0][0]
+Y_2056_offset = XY_2056_Bounds[1][0]
 
 # conda env export --from-history > *name file*.yml
 
 # #############################################################################
 # MAIN: Load Data (Trajectories)
 # #############################################################################
-filename = f"trajectories_bikes_{date}_{intersection}_{time_slot}_{code}-1-ekf.csv"
-df = pd.read_csv(BikeZ_Config.data_root + f"{date}/{intersection}/{filename}")
+filename = f"trajectories_bikes_{date}_{intersection}_{timeslot}_{code}-1-ekf.csv"
+df = pd.read_csv(data_root + f"{date}/{intersection}/{filename}")
 df = df.dropna()
 
 # Convert from EPSG:2056 to EPSG:4326 (lat, lon)
-df['x_act_ekf'] = df['x_ekf'] + BikeZ_Config.X_2056_Bounds[0]
-df['y_act_ekf'] = df['y_ekf'] + BikeZ_Config.Y_2056_Bounds[0]
+df['x_act_ekf'] = df['x_ekf'] + X_2056_offset
+df['y_act_ekf'] = df['y_ekf'] + Y_2056_offset
 transformer = Transformer.from_crs("EPSG:2056", "EPSG:4326", always_xy=True)
 df["lon_ekf"], df["lat_ekf"] = transformer.transform(df["x_act_ekf"].values, df["y_act_ekf"].values)
 
