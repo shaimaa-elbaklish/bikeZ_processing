@@ -26,16 +26,17 @@ from typing import Tuple, Dict
 class BikeZ_Config:
     timezone = pytz.timezone('Europe/Berlin')
     fps: float = 25.0
-    dir_root: str = "C:/Users/ShaimaaElBaklish/Documents/Datasets/BikeZ/"
+    dir_root: str = "C:/Users/tramseier/Documents/Datasets/BikeZ/"
     avail_modes: Tuple[str] = ("bike", "vehicle")
     data_root: Dict = field(default_factory=lambda: {
         "Zurich_202506": {
-            "bike": "C:/Users/ShaimaaElBaklish/Documents/Datasets/BikeZ/Zurich_202506/bike_trajectories/v2/",
-            # "bike": "C:/Users/tramseier/Documents/SVT/Data/BikeZ/MobilLysis_bicycle_trajectory/",
-            "vehicle": "C:/Users/ShaimaaElBaklish/Documents/Datasets/BikeZ/Zurich_202506/vehicle_trajectories/"
+            # "bike": "C:/Users/ShaimaaElBaklish/Documents/Datasets/BikeZ/Zurich_202506/bike_trajectories/v2/",
+            "bike": "C:/Users/tramseier/Documents/SVT/Data/BikeZ/MobilLysis_bicycle_trajectory/",
+            # "vehicle": "C:/Users/ShaimaaElBaklish/Documents/Datasets/BikeZ/Zurich_202506/vehicle_trajectories/"
         },
         "Zurich_202509": {
-            "bike": "C:/Users/ShaimaaElBaklish/Documents/Datasets/BikeZ/Zurich_202509/bike_trajectories/",
+            # "bike": "C:/Users/ShaimaaElBaklish/Documents/Datasets/BikeZ/Zurich_202509/bike_trajectories/",
+            "bike": "C:/Users/tramseier/Documents/SVT/Data/BikeZ/MobilLysis_bicycle_trajectory/",
             "vehicle": "C:/Users/ShaimaaElBaklish/Documents/Datasets/BikeZ/Zurich_202509/vehicle_trajectories/"
         }
     })
@@ -98,9 +99,9 @@ class BikeZ_Config:
         },
         "2025-09-30": {
             ("D1", "G"): [],
-            ("D1", "H"): [],
+            ("D1", "H"): [(2680014, 2680380), (1248708, 1248918)], # TR: very approximate, check if thats ok
             ("D2", "F"): [],
-            ("D2", "I"): []
+            ("D2", "I"): [(2679682, 2680105), (1248819, 1249080)] # TR: very approximate, check if thats ok
         }
     })
 
