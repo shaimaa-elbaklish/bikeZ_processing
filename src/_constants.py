@@ -30,13 +30,13 @@ class BikeZ_Config:
     avail_modes: Tuple[str] = ("bike", "vehicle")
     data_root: Dict = field(default_factory=lambda: {
         "Zurich_202506": {
-            # "bike": "C:/Users/ShaimaaElBaklish/Documents/Datasets/BikeZ/Zurich_202506/bike_trajectories/v2/",
-            "bike": "C:/Users/tramseier/Documents/SVT/Data/BikeZ/MobilLysis_bicycle_trajectory/",
-            # "vehicle": "C:/Users/ShaimaaElBaklish/Documents/Datasets/BikeZ/Zurich_202506/vehicle_trajectories/"
+            "bike": "C:/Users/ShaimaaElBaklish/Documents/Datasets/BikeZ/Zurich_202506/bike_trajectories/v2/",
+            # "bike": "C:/Users/tramseier/Documents/SVT/Data/BikeZ/MobilLysis_bicycle_trajectory/",
+            "vehicle": "C:/Users/ShaimaaElBaklish/Documents/Datasets/BikeZ/Zurich_202506/vehicle_trajectories/"
         },
         "Zurich_202509": {
-            # "bike": "C:/Users/ShaimaaElBaklish/Documents/Datasets/BikeZ/Zurich_202509/bike_trajectories/",
-            "bike": "C:/Users/tramseier/Documents/SVT/Data/BikeZ/MobilLysis_bicycle_trajectory/",
+            "bike": "C:/Users/ShaimaaElBaklish/Documents/Datasets/BikeZ/Zurich_202509/bike_trajectories/",
+            # "bike": "C:/Users/tramseier/Documents/SVT/Data/BikeZ/MobilLysis_bicycle_trajectory/",
             "vehicle": "C:/Users/ShaimaaElBaklish/Documents/Datasets/BikeZ/Zurich_202509/vehicle_trajectories/"
         }
     })
@@ -79,8 +79,8 @@ class BikeZ_Config:
     XY_2056_Bounds: Dict = field(default_factory=lambda: {
         "2025-06-16": {
             ("D1", "A"): [(2682300, 2682480), (1248410, 1248530)],
-            ("D2", "G"): [(2682410, 2682575), (1248370, 1248480)],
-            ("D2", "C"): [(2682440, 2682610), (1248350, 1248480)],
+            ("D2", "G"): [(2682380, 2682575), (1248370, 1248490)],
+            ("D2", "C"): [(2682430, 2682610), (1248350, 1248490)],
             ("D3", "E"): [(2682700, 2682860), (1247820, 1247960)],
             ("D4", "F"): [(2682780, 2682950), (1247780, 1247890)]
         },
@@ -92,16 +92,16 @@ class BikeZ_Config:
             ("D4", "F"): [(2682740, 2682940), (1247770, 1247915)]
         },
         "2025-09-29": {
-            ("D1", "A"): [],
-            ("D1", "C"): [],
-            ("D2", "B"): [],
-            ("D2", "E"): []
+            ("D1", "A"): [(2683290, 2683500), (1246745, 1246850)],
+            ("D1", "C"): [(2680735, 2680840), (1248765, 1248960)],
+            ("D2", "B"): [(2681270, 2681450), (1248150, 1248280)],
+            ("D2", "E"): [(2680490, 2680650), (1248550, 1248670)]
         },
         "2025-09-30": {
-            ("D1", "G"): [],
-            ("D1", "H"): [(2680014, 2680380), (1248708, 1248918)], # TR: very approximate, check if thats ok
-            ("D2", "F"): [],
-            ("D2", "I"): [(2679682, 2680105), (1248819, 1249080)] # TR: very approximate, check if thats ok
+            ("D1", "G"): [(2680180, 2680360), (1246930, 1247050)],
+            ("D1", "H"): [(2680065, 2680265), (1248755, 1248880)],
+            ("D2", "F"): [(2680820, 2680995), (1247060, 1247160)],
+            ("D2", "I"): [(2679830, 2680015), (1248850, 1248990)] 
         }
     })
 

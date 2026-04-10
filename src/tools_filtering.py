@@ -18,6 +18,8 @@ warnings.simplefilter('ignore', RuntimeWarning) # Ignore all RuntimeWarnings
 import numpy as np
 import pandas as pd
 
+from scipy.ndimage import uniform_filter1d
+
 from _constants import SPEED_ESTIMATION_HORIZON
 from _constants import VEHICLE_DIMENSION_MOVING_AVERAGE_WINDOW_LENGTH
 from _constants import ANGLE_VELOCITY_THRESHOLD
@@ -282,3 +284,63 @@ def _filter_median_deviation(series, kernel_size, threshold):
                       rolling_median[mask] * weight_median[mask])
     filtered[~mask] = series[~mask]
     return filtered
+
+
+def estimate_heading(df, speed_threshold=0.5, window_s=0.5, min_periods=3):
+    """
+    Estimate heading angle (degrees, 0=East, CCW positive) per vehicle.
+    
+    - Uses central differences on (x, y) for heading
+    - Masks low-speed frames (unreliable displacement direction)
+    - Smooths with a rolling circular mean
+    - Fills masked frames by forward/backward propagation
+    
+    Args:
+        df: DataFrame with columns [veh_id, x, y, speed, time, missing]
+        speed_threshold: below this (km/h) heading is considered unreliable
+        window_s: smoothing window in seconds
+        min_periods: minimum valid samples in smoothing window
+    """
+    window = int(window_s * 20)  # samples at 20 Hz
+    if window % 2 == 0:
+        window += 1  # keep it odd for symmetric central diff
+
+    results = []
+
+    for veh_id, grp in df.groupby('veh_id'):
+        grp = grp.sort_values('time').copy()
+
+        # --- 1. Raw heading from central differences ---
+        dx = grp['x'].diff(2).shift(-1)   # central difference: x[i+1] - x[i-1]
+        dy = grp['y'].diff(2).shift(-1)
+        raw_heading = np.degrees(np.arctan2(dy, dx))  # (-180, 180]
+
+        # --- 2. Mask unreliable frames ---
+        unreliable = grp['missing'] | (grp['speed'] < speed_threshold) | (grp['speed'] == -1)
+        raw_heading[unreliable] = np.nan
+
+        # --- 3. Unwrap to avoid circular mean artifacts ---
+        valid_mask = ~np.isnan(raw_heading)
+        unwrapped = raw_heading.copy()
+        if valid_mask.sum() > 1:
+            unwrapped[valid_mask] = np.degrees(
+                np.unwrap(np.radians(raw_heading[valid_mask]))
+            )
+
+        # --- 4. Rolling smooth on unwrapped signal ---
+        smoothed = (
+            unwrapped
+            .rolling(window=window, center=True, min_periods=min_periods)
+            .mean()
+        )
+
+        # --- 5. Re-wrap to (-180, 180] ---
+        smoothed = (smoothed + 180) % 360 - 180
+
+        # --- 6. Fill gaps by propagation (last known heading) ---
+        smoothed = smoothed.ffill().bfill()
+
+        grp['heading'] = smoothed
+        results.append(grp)
+
+    return pd.concat(results).sort_index()

@@ -71,6 +71,8 @@ XY_2056_Bounds = BikeZ_Config.XY_2056_Bounds[date][(intersection, code)]
 X_2056_offset = XY_2056_Bounds[0][0]
 Y_2056_offset = XY_2056_Bounds[1][0]
 
+sys.exit(1)
+
 # #############################################################################
 # MAIN: Load Data (Trajectories)
 # #############################################################################

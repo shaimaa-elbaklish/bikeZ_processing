@@ -221,7 +221,7 @@ north_south_spl = fit_roadway_centerline_spline(kasernenstrasse_NS_branch) # tup
 plot_spline_xy_2056(m, north_south_spl, label="Kasernenstrasse Centerline (N->S)", 
                     linecolor=colors_dict['north'], linedashed=True, start_point=True)
 
-splines_dict['N_2_S'] = north_south_spl
+splines_dict['N_2_S_A'] = north_south_spl       # A = Both Cars and Bikes
 
 # #############################################################################
 # MAIN: Get Through South -> North Spline
@@ -230,7 +230,7 @@ south_north_spl = fit_roadway_centerline_spline(kasernenstrasse_SN_branch + stad
 plot_spline_xy_2056(m, south_north_spl, label="Kasernenstrasse Centerline (S->N)", 
                     linecolor=colors_dict['south'], linedashed=True, start_point=True)
 
-splines_dict['S_2_N'] = south_north_spl
+splines_dict['S_2_N_B'] = south_north_spl       # B = Bikes only
 
 # #############################################################################
 # MAIN: Get Through East -> West Spline
@@ -257,7 +257,7 @@ east_west_spl = fit_roadway_centerline_spline(east_west_merged_coords, coordsys=
 plot_spline_xy_2056(m, east_west_spl, label="Lagerstrasse Centerline (E->W)", 
                     linecolor=colors_dict['east'], linedashed=True, start_point=True)
 
-splines_dict['E_2_W'] = east_west_spl
+splines_dict['E_2_W_B'] = east_west_spl       # B = Bikes only
 
 # #############################################################################
 # MAIN: Get Through West -> East Spline
@@ -284,7 +284,7 @@ west_east_spl = fit_roadway_centerline_spline(west_east_merged_coords, coordsys=
 plot_spline_xy_2056(m, west_east_spl, label="Lagerstrasse Centerline (W->E)",
                     linecolor=colors_dict['west'], linedashed=True, start_point=True)
 
-splines_dict['W_2_E'] = west_east_spl
+splines_dict['W_2_E_A'] = west_east_spl       # A = Both Cars and Bikes
 
 # #############################################################################
 # MAIN: Get Turning South -> East Spline
@@ -307,7 +307,7 @@ south_east_spl = fit_roadway_centerline_spline(south_east_merged_coords, coordsy
 plot_spline_xy_2056(m, south_east_spl, label="Turning Centerline (S->E)", 
                     linecolor=colors_dict['south'], linedashed=True, start_point=True)
 
-splines_dict['S_2_E'] = south_east_spl
+splines_dict['S_2_E_A'] = south_east_spl       # A = Both Cars and Bikes
 
 # #############################################################################
 # MAIN: Get Turning South -> West Spline
@@ -321,7 +321,7 @@ south_west_spl = fit_roadway_centerline_spline(south_west_merged_coords, coordsy
 plot_spline_xy_2056(m, south_west_spl, label="Turning Centerline (S->W)", 
                     linecolor=colors_dict['south'], linedashed=True, start_point=True)
 
-splines_dict['S_2_W'] = south_west_spl
+splines_dict['S_2_W_A'] = south_west_spl       # A = Both Cars and Bikes
 
 # #############################################################################
 # MAIN: Get Turning North -> East Spline
@@ -345,7 +345,7 @@ north_east_spl = fit_roadway_centerline_spline(north_east_merged_coords, coordsy
 plot_spline_xy_2056(m, north_east_spl, label="Turning Centerline (N->E)", 
                     linecolor=colors_dict['north'], linedashed=True, start_point=True)
 
-splines_dict['N_2_E'] = north_east_spl
+splines_dict['N_2_E_A'] = north_east_spl       # A = Both Cars and Bikes
 
 # #############################################################################
 # MAIN: Get Turning North -> West Spline
@@ -359,7 +359,7 @@ north_west_spl = fit_roadway_centerline_spline(north_west_merged_coords, coordsy
 plot_spline_xy_2056(m, north_west_spl, label="Turning Centerline (N->W)", 
                     linecolor=colors_dict['north'], linedashed=True, start_point=True)
 
-splines_dict['N_2_W'] = north_west_spl
+splines_dict['N_2_W_A'] = north_west_spl       # A = Both Cars and Bikes
 
 # #############################################################################
 # MAIN: Get Turning West -> North Spline
@@ -382,7 +382,7 @@ west_north_spl = fit_roadway_centerline_spline(west_north_merged_coords, coordsy
 plot_spline_xy_2056(m, west_north_spl, label="Turning Centerline (W->N)",
                     linecolor=colors_dict['west'], linedashed=True, start_point=True)
 
-splines_dict['W_2_N'] = west_north_spl
+splines_dict['W_2_N_B'] = west_north_spl       # B = Bikes only
 
 # #############################################################################
 # MAIN: Get Turning West -> South Spline
@@ -406,7 +406,7 @@ west_south_spl = fit_roadway_centerline_spline(west_south_merged_coords, coordsy
 plot_spline_xy_2056(m, west_south_spl, label="Turning Centerline (W->S)", 
                     linecolor=colors_dict['west'], linedashed=True, start_point=True)
 
-splines_dict['W_2_S'] = west_south_spl
+splines_dict['W_2_S_A'] = west_south_spl       # A = Both Cars and Bikes
 
 # #############################################################################
 # MAIN: Get Turning East -> North Spline
@@ -420,7 +420,7 @@ east_north_spl = fit_roadway_centerline_spline(east_north_merged_coords, coordsy
 plot_spline_xy_2056(m, east_north_spl, label="Turning Centerline (E->N)", 
                     linecolor=colors_dict['east'], linedashed=True, start_point=True)
 
-splines_dict['E_2_N'] = east_north_spl
+splines_dict['E_2_N_B'] = east_north_spl       # B = Bikes only
 
 # #############################################################################
 # MAIN: Get Turning East -> South Spline
@@ -434,7 +434,7 @@ east_south_spl = fit_roadway_centerline_spline(east_south_merged_coords, coordsy
 plot_spline_xy_2056(m, east_south_spl, label="Turning Centerline (E->S)", 
                     linecolor=colors_dict['east'], linedashed=True, start_point=True)
 
-splines_dict['E_2_S'] = east_south_spl
+splines_dict['E_2_S_B'] = east_south_spl       # B = Bikes only
 
 
 # #############################################################################

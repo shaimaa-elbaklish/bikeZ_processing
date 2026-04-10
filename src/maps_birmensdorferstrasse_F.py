@@ -74,18 +74,39 @@ Y_2056_offset = XY_2056_Bounds[1][0]
 # #############################################################################
 # MAIN: Load Data (Trajectories)
 # #############################################################################
-filename = f"trajectories_bikes_{date}_{intersection}_{timeslot}_{code}-1-ekf.csv"
+filename = f"trajectories_bikes_{date}_{intersection}_{timeslot}_{code}-1.csv"
 df = pd.read_csv(data_root + f"{date}/{intersection}/{filename}")
 df = df.dropna()
 
-# Convert from EPSG:2056 to EPSG:4326 (lat, lon)
-df['x_act_ekf'] = df['x_ekf'] + X_2056_offset
-df['y_act_ekf'] = df['y_ekf'] + Y_2056_offset
-transformer = Transformer.from_crs("EPSG:2056", "EPSG:4326", always_xy=True)
-df["lon_ekf"], df["lat_ekf"] = transformer.transform(df["x_act_ekf"].values, df["y_act_ekf"].values)
+# COLUMNS: ['veh_id', 'veh_type', 'speed(km/h)', 'a(m/s2)', 'time(s)', 'X_2056(m)', 'Y_2056(m)', 'longitude', 'latitude', 'datetime']
+# add a column as a missing flag
+df['missing'] = (df['speed(km/h)'] == -1)
 
-# Create a folium map
-center_lat, center_lon = df["lat_ekf"].mean(), df["lon_ekf"].mean()
+df = df.rename(columns={
+    'speed(km/h)': 'speed',
+    'a(m/s2)': 'a',
+    'time(s)': 'time',
+    'X_2056(m)': 'x_act',
+    'Y_2056(m)': 'y_act',
+    'longitude': 'lon',
+    'latitude': 'lat'
+})
+df['x'] = df['x_act'] - X_2056_offset
+df['y'] = df['y_act'] - Y_2056_offset
+df['datetime'] = pd.to_datetime(df['datetime'], format='ISO8601')
+
+# Fix time = -1 issues
+# Find ref. datetime (i.e. datetime when time == 0)
+ref_datetime = df['datetime'].min()
+ref_time = df.loc[(df['datetime'] == ref_datetime) & (df['time'] >= 0), 'time'].unique()[0]
+df['time'] = df['datetime'].apply(lambda x: np.round((x - ref_datetime).total_seconds() + ref_time, decimals=3))
+df = df.sort_values(by=['veh_id', 'time'], ascending=True)    
+# # Estimate heading angle (degrees)
+# from tools_filtering import estimate_heading
+# df = estimate_heading(df, speed_threshold=1.0, window_s=0.5)
+# df['angle'] = df['heading'] * np.pi / 180 # convert to rad
+
+center_lat, center_lon = df.loc[~df['missing'], "lat"].mean(), df.loc[~df['missing'], "lon"].mean()
 
 # #############################################################################
 # MAIN: Extract Remaining Centerlines from SwissTopo
@@ -116,7 +137,7 @@ centerl_Birmensdorferstrasse_West_EW = get_centerl_from_swisstopo(gdf_swisstopo,
 # MAIN: Create Folium map with SwissTopo base image
 # #############################################################################
 # Create a folium map
-m = create_swisstopo_map(center_lat=df["lat_ekf"].mean(), center_lon=df["lon_ekf"].mean())
+m = create_swisstopo_map(center_lat, center_lon)
 # Create splines dictionary for saving
 splines_dict = {}
 
@@ -363,7 +384,7 @@ splines_dict['W_2_N_A'] = spl
 # #############################################################################
 # MAIN: Saving Map and Splines
 # #############################################################################
-with open(f"../data/centerlines_splines_{date}_{intersection}.pkl", "wb") as f:
+with open(f"../data/centerlines_splines_{date}_{intersection}_{code}.pkl", "wb") as f:
     pickle.dump(splines_dict, f)
 
 m.save(f"../maps/road_centerlines_map_{date}_{intersection}_debugging.html")
@@ -373,15 +394,15 @@ m.save(f"../maps/road_centerlines_map_{date}_{intersection}_debugging.html")
 # MAIN: Plotting and Saving FINAL Map
 # #############################################################################
 # Create a folium map
-m = create_swisstopo_map(center_lat=df["lat_ekf"].mean(), center_lon=df["lon_ekf"].mean(), add_layer_control=False)
+m = create_swisstopo_map(center_lat, center_lon, add_layer_control=False)
 plot_all_centerlines_splines_xy_2056(m, splines_dict, add_layer_control=True)
 
 m.save(f"../maps/road_centerlines_map_{date}_{intersection}.html")
 
 
-m = create_swisstopo_map(center_lat=df["lat_ekf"].mean(), center_lon=df["lon_ekf"].mean(), add_layer_control=False)
+m = create_swisstopo_map(center_lat, center_lon, add_layer_control=False)
 plot_all_centerlines_splines_xy_2056(m, splines_dict, add_layer_control=False)
-plot_bicycles_trajectories_xy_2056(m, df, linecolor='black', linealpha=0.25, add_layer_control=True)
+plot_bicycles_trajectories_xy_2056(m, df, linecolor='black', linealpha=0.25, add_layer_control=True, ekf=False)
 
 m.save(f"../maps/trajectories_map_{date}_{intersection}_{timeslot}_{code}.html")
 
@@ -414,6 +435,6 @@ lane_boundaries_splines_dict['N_SB'] = "mixed"
 lane_boundaries_splines_dict['S_SB'] = "mixed"
 
 # Save
-with open(f"../data/bike_lane_boundaries_splines_{date}_{intersection}.pkl", "wb") as f:
+with open(f"../data/bike_lane_boundaries_splines_{date}_{intersection}_{code}.pkl", "wb") as f:
     pickle.dump(lane_boundaries_splines_dict, f)
 

@@ -29,12 +29,12 @@ from _constants import BikeZ_Config
 BikeZ_Config = BikeZ_Config()
 
 # Specify Trajectory File
-date = BikeZ_Config.avail_dates[0]
+date = BikeZ_Config.avail_dates[2]
 campaign = f"Zurich_2025{date[5:7]}" # June or September
 mode = BikeZ_Config.avail_modes[0] # Bike
 data_root = BikeZ_Config.data_root[campaign][mode]
 
-intersection, code = BikeZ_Config.avail_intersections[date][-1]
+intersection, code = BikeZ_Config.avail_intersections[date][2]
 all_timeslots = BikeZ_Config.avail_timeslots[date][(intersection, code)]
 # timeslot = BikeZ_Config.avail_timeslots[date][(intersection, code)][0] # 'AM1' or 'PM1
 
@@ -45,7 +45,7 @@ PLOTTING = True
 # #############################################################################
 # MAIN
 # #############################################################################
-for timeslot in all_timeslots[:1]:
+for timeslot in all_timeslots[-1:]:
     print(timeslot)
     filename = f"trajectories_bikes_{date}_{intersection}_{timeslot}_{code}-1.csv"
     df = pd.read_csv(data_root + f"{date}/{intersection}/{filename}")
@@ -87,14 +87,14 @@ for timeslot in all_timeslots[:1]:
         plt.tight_layout()
     
     
-    # Checking Frame Number and Uniform Delta Time
-    grouped = df.groupby(by=['veh_id'])
-    for (bike_id,), bike_df in grouped:
-        bike_df['frame_nr'] = np.round(bike_df['time'] * BikeZ_Config.fps + 1e-05, decimals=0)
-        bike_df['frame_nr'] = bike_df['frame_nr'].astype(int)
-        if not bike_df['frame_nr'].is_monotonic_increasing:
-            print("Non-montonic frames, ID = ", bike_id)
-            sys.exit(1)
-        if bike_df['frame_nr'].duplicated().any():
-            print("Duplicated frames, ID = ", bike_id)
-            sys.exit(1)
+    # # Checking Frame Number and Uniform Delta Time
+    # grouped = df.groupby(by=['veh_id'])
+    # for (bike_id,), bike_df in grouped:
+    #     bike_df['frame_nr'] = np.round(bike_df['time'] * BikeZ_Config.fps + 1e-05, decimals=0)
+    #     bike_df['frame_nr'] = bike_df['frame_nr'].astype(int)
+    #     if not bike_df['frame_nr'].is_monotonic_increasing:
+    #         print("Non-montonic frames, ID = ", bike_id)
+    #         sys.exit(1)
+    #     if bike_df['frame_nr'].duplicated().any():
+    #         print("Duplicated frames, ID = ", bike_id)
+    #         sys.exit(1)

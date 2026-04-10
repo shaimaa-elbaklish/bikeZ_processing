@@ -19,3 +19,5 @@ src/main_kf.py
 *.pyc
 *.pyc
 *.html
+.claude/
+logs/

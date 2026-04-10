@@ -30,24 +30,27 @@ warnings.filterwarnings("ignore")
 BikeZ_Config = BikeZ_Config()
 
 # Specify Trajectory File
-date = BikeZ_Config.avail_dates[1]
+date = BikeZ_Config.avail_dates[0]
 campaign = f"Zurich_2025{date[5:7]}"  # June or September
-mode = BikeZ_Config.avail_modes[0]  # Bike
+mode = BikeZ_Config.avail_modes[0]  # 0: Bike, 1: Vehicle
 data_root = BikeZ_Config.data_root[campaign][mode]
 
 intersection, code = BikeZ_Config.avail_intersections[date][3]
-timeslot = BikeZ_Config.avail_timeslots[date][(intersection, code)][11] # 'PM5'
+timeslot = BikeZ_Config.avail_timeslots[date][(intersection, code)][0] # 'PM2'
 
 XY_2056_Bounds = BikeZ_Config.XY_2056_Bounds[date][(intersection, code)]
 X_2056_offset = XY_2056_Bounds[0][0]
 Y_2056_offset = XY_2056_Bounds[1][0]
 
-# sys.exit(1)
+sys.exit(1)
 
 # #############################################################################
 # MAIN
 # #############################################################################
-filename = f"trajectories_bikes_{date}_{intersection}_{timeslot}_{code}-1.csv"
+if mode == "bike":
+    filename = f"trajectories_bikes_{date}_{intersection}_{timeslot}_{code}-1.csv"
+else:
+    filename = f"trajectories_vehicles_{date}_{intersection}_{timeslot}_{code}-1.csv"
 df = pd.read_csv(data_root + f"{date}/{intersection}/{filename}")
 # COLUMNS: ['veh_id', 'veh_type', 'speed(km/h)', 'a(m/s2)', 'time(s)', 'X_2056(m)', 'Y_2056(m)', 'longitude', 'latitude', 'datetime']
 # add a column as a missing flag
@@ -101,7 +104,10 @@ for veh_id in tqdm(unique_ids, desc="Processing EKF on Bicycles"):
         filt_df = pd.concat((filt_df, veh_df), ignore_index=True)
     gc.collect()
 
-filename = f"trajectories_bikes_{date}_{intersection}_{timeslot}_{code}-1-ekf.csv"
+if mode == "bike":
+    filename = f"trajectories_bikes_{date}_{intersection}_{timeslot}_{code}-1-ekf.csv"
+else:
+    filename = f"trajectories_vehicles_{date}_{intersection}_{timeslot}_{code}-1-ekf.csv"
 filt_df.to_csv(data_root + f"{date}/{intersection}/{filename}", index=False)
 
 # filename = f"trajectories_bikes_{date}_{intersection}_{time_slot}_{code}-1-ekf.csv"

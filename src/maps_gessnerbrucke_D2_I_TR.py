@@ -50,7 +50,7 @@ def plot_idx_merged(centerline_coords_list):
 
 
 def get_centerl_from_swisstopo(gdf_swisstopo, name_centerline, num_seg_dens=20):
-    row = gdf_swisstopo[gdf_swisstopo['description']
+    row = gdf_swisstopo[gdf_swisstopo['Description']
                         == name_centerline].copy()
     centerline = row.geometry.item()
     centerline = densify_linestring(
@@ -98,19 +98,39 @@ Y_2056_offset = XY_2056_Bounds[1][0]
 # #############################################################################
 # MAIN: Load Data (Trajectories)
 # #############################################################################
-filename = f"trajectories_bikes_{date}_{intersection}_{timeslot}_{code}-1-ekf.csv"
+filename = f"trajectories_bikes_{date}_{intersection}_{timeslot}_{code}-1.csv"
 df = pd.read_csv(data_root + f"{date}/{intersection}/{filename}")
 df = df.dropna()
 
-# Convert from EPSG:2056 to EPSG:4326 (lat, lon)
-df['x_act_ekf'] = df['x_ekf'] + X_2056_offset
-df['y_act_ekf'] = df['y_ekf'] + Y_2056_offset
-transformer = Transformer.from_crs("EPSG:2056", "EPSG:4326", always_xy=True)
-df["lon_ekf"], df["lat_ekf"] = transformer.transform(
-    df["x_act_ekf"].values, df["y_act_ekf"].values)
+# COLUMNS: ['veh_id', 'veh_type', 'speed(km/h)', 'a(m/s2)', 'time(s)', 'X_2056(m)', 'Y_2056(m)', 'longitude', 'latitude', 'datetime']
+# add a column as a missing flag
+df['missing'] = (df['speed(km/h)'] == -1)
 
-# Create a folium map
-center_lat, center_lon = df['lat_ekf'].mean(), df['lon_ekf'].mean()
+df = df.rename(columns={
+    'speed(km/h)': 'speed',
+    'a(m/s2)': 'a',
+    'time(s)': 'time',
+    'X_2056(m)': 'x_act',
+    'Y_2056(m)': 'y_act',
+    'longitude': 'lon',
+    'latitude': 'lat'
+})
+df['x'] = df['x_act'] - X_2056_offset
+df['y'] = df['y_act'] - Y_2056_offset
+df['datetime'] = pd.to_datetime(df['datetime'], format='ISO8601')
+
+# Fix time = -1 issues
+# Find ref. datetime (i.e. datetime when time == 0)
+ref_datetime = df['datetime'].min()
+ref_time = df.loc[(df['datetime'] == ref_datetime) & (df['time'] >= 0), 'time'].unique()[0]
+df['time'] = df['datetime'].apply(lambda x: np.round((x - ref_datetime).total_seconds() + ref_time, decimals=3))
+df = df.sort_values(by=['veh_id', 'time'], ascending=True)    
+# # Estimate heading angle (degrees)
+# from tools_filtering import estimate_heading
+# df = estimate_heading(df, speed_threshold=1.0, window_s=0.5)
+# df['angle'] = df['heading'] * np.pi / 180 # convert to rad
+
+center_lat, center_lon = df.loc[~df['missing'], "lat"].mean(), df.loc[~df['missing'], "lon"].mean()
 
 # #############################################################################
 # MAIN: Extract Remaining Centerlines from SwissTopo
@@ -122,7 +142,7 @@ center_lat, center_lon = df['lat_ekf'].mean(), df['lon_ekf'].mean()
 kml_path = "../maps/from_swisstopo/baslerstrasse_D2_I.kml"
 gdf_swisstopo = gpd.read_file(kml_path, driver='KML')
 
-# row = gdf_swisstopo[gdf_swisstopo['description'] == 'Observed_Area'].copy()
+# row = gdf_swisstopo[gdf_swisstopo['Description'] == 'Observed_Area'].copy()
 # observed_area_polygon = row.geometry.item()
 
 # Retrieving all relevant centerlines
@@ -171,7 +191,7 @@ spl = get_clothoid_spl(centerl_Flurstrasse_North_NS, centerl_Flurstrasse_South_N
 plot_spline_xy_2056(m, spl, label="Gessnerallee Centerline (N->S)",
                     linecolor=colors_dict['north'], linedashed=True, start_point=True)
 
-splines_dict['N_2_S'] = spl
+splines_dict['N_2_S_A'] = spl
 
 # #############################################################################
 # MAIN: Get Through North -> West Spline
@@ -181,7 +201,7 @@ spl = get_clothoid_spl(
 plot_spline_xy_2056(m, spl, label="Gessnerallee Centerline (N->S)",
                     linecolor=colors_dict['north'], linedashed=True, start_point=True)
 
-splines_dict['N_2_W'] = spl
+splines_dict['N_2_W_A'] = spl
 
 # #############################################################################
 # MAIN: Get Through North -> West Spline
@@ -191,7 +211,7 @@ spl = get_clothoid_spl(
 plot_spline_xy_2056(m, spl, label="Gessnerallee Centerline (N->S)",
                     linecolor=colors_dict['north'], linedashed=True, start_point=True)
 
-splines_dict['N_2_E'] = spl
+splines_dict['N_2_E_A'] = spl
 
 # #############################################################################
 # MAIN: Get Through West -> South Spline
@@ -201,7 +221,7 @@ spl = get_clothoid_spl(
 plot_spline_xy_2056(m, spl, label="Gessnerallee Centerline (W->S)",
                     linecolor=colors_dict['north'], linedashed=True, start_point=True)
 
-splines_dict['W_2_S'] = spl
+splines_dict['W_2_S_A'] = spl
 
 # #############################################################################
 # MAIN: Get Through West -> East Spline
@@ -211,7 +231,7 @@ spl = get_clothoid_spl(
 plot_spline_xy_2056(m, spl, label="Gessnerallee Centerline (N->S)",
                     linecolor=colors_dict['north'], linedashed=True, start_point=True)
 
-splines_dict['W_2_E'] = spl
+splines_dict['W_2_E_A'] = spl
 
 # #############################################################################
 # MAIN: Get Through West -> East Spline
@@ -221,7 +241,7 @@ spl = get_clothoid_spl(
 plot_spline_xy_2056(m, spl, label="Gessnerallee Centerline (N->S)",
                     linecolor=colors_dict['north'], linedashed=True, start_point=True)
 
-splines_dict['W_2_N'] = spl
+splines_dict['W_2_N_A'] = spl
 
 # #############################################################################
 # MAIN: Get Through East -> West Spline
@@ -231,7 +251,7 @@ spl = get_clothoid_spl(
 plot_spline_xy_2056(m, spl, label="Gessnerallee Centerline (N->S)",
                     linecolor=colors_dict['north'], linedashed=True, start_point=True)
 
-splines_dict['E_2_W'] = spl
+splines_dict['E_2_W_A'] = spl
 
 # #############################################################################
 # MAIN: Get Through East -> West Spline
@@ -241,7 +261,7 @@ spl = get_clothoid_spl(
 plot_spline_xy_2056(m, spl, label="Gessnerallee Centerline (N->S)",
                     linecolor=colors_dict['north'], linedashed=True, start_point=True)
 
-splines_dict['E_2_N'] = spl
+splines_dict['E_2_N_A'] = spl
 
 # #############################################################################
 # MAIN: Get Through East -> West Spline
@@ -251,7 +271,7 @@ spl = get_clothoid_spl(
 plot_spline_xy_2056(m, spl, label="Gessnerallee Centerline (N->S)",
                     linecolor=colors_dict['north'], linedashed=True, start_point=True)
 
-splines_dict['E_2_S'] = spl
+splines_dict['E_2_S_A'] = spl
 
 # #############################################################################
 # MAIN: Get Through South -> West Spline
@@ -262,7 +282,7 @@ spl = get_clothoid_spl(
 plot_spline_xy_2056(m, spl, label="Gessnerallee Centerline (S->W)",
                     linecolor=colors_dict['north'], linedashed=True, start_point=True)
 
-splines_dict['S_2_W'] = spl
+splines_dict['S_2_W_A'] = spl
 
 # #############################################################################
 # MAIN: Get Through South -> West Spline
@@ -273,7 +293,7 @@ spl = get_clothoid_spl(
 plot_spline_xy_2056(m, spl, label="Gessnerallee Centerline (S->W)",
                     linecolor=colors_dict['north'], linedashed=True, start_point=True)
 
-splines_dict['S_2_N'] = spl
+splines_dict['S_2_N_A'] = spl
 
 # #############################################################################
 # MAIN: Get Through South -> West Spline
@@ -284,12 +304,12 @@ spl = get_clothoid_spl(
 plot_spline_xy_2056(m, spl, label="Gessnerallee Centerline (S->W)",
                     linecolor=colors_dict['north'], linedashed=True, start_point=True)
 
-splines_dict['S_2_E'] = spl
+splines_dict['S_2_E_A'] = spl
 
 # #############################################################################
 # MAIN: Saving Map and Splines
 # #############################################################################
-with open(f"../data/centerlines_splines_{date}_{intersection}.pkl", "wb") as f:
+with open(f"../data/centerlines_splines_{date}_{intersection}_{code}.pkl", "wb") as f:
     pickle.dump(splines_dict, f)
 
 m.save(f"../maps/road_centerlines_map_{date}_{intersection}_debugging.html")
@@ -308,7 +328,7 @@ m.save(f"../maps/road_centerlines_map_{date}_{intersection}_{code}.html")
 m = create_swisstopo_map(center_lat=center_lat, center_lon=center_lon, add_layer_control=False)
 plot_all_centerlines_splines_xy_2056(m, splines_dict, add_layer_control=False)
 plot_bicycles_trajectories_xy_2056(
-    m, df, linecolor='black', linealpha=0.25, add_layer_control=True)
+    m, df, linecolor='black', linealpha=0.25, add_layer_control=True, ekf=False)
 
 m.save(
     f"../maps/trajectories_map_{date}_{intersection}_{timeslot}_{code}.html")
@@ -346,5 +366,5 @@ lane_boundaries_splines_dict['E_EB'] = bike_lb_spl
 # lane_boundaries_splines_dict['E_WB'] = "mixed"
 
 # Save
-with open(f"../data/bike_lane_boundaries_splines_{date}_{intersection}.pkl", "wb") as f:
+with open(f"../data/bike_lane_boundaries_splines_{date}_{intersection}_{code}.pkl", "wb") as f:
     pickle.dump(lane_boundaries_splines_dict, f)

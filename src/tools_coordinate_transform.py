@@ -530,3 +530,89 @@ def match_bicycle_to_centerline_with_curvature(bike_df, centerlines_spl_dict, w_
     return distances['combined_err'].idxmin()
 
 
+def match_bicycle_to_centerline_with_heading(bike_df, centerlines_spl_dict,
+                                 w_dist=1.0, w_curv=0.3, w_end=0.2, w_heading=0.5):
+    N = len(bike_df)
+    bike_xy = bike_df[['x_act_ekf', 'y_act_ekf']].to_numpy()
+    bike_cum_dist, bike_total_dist = _compute_distance_traveled(bike_xy)
+    curv_traj = _compute_curvature(bike_xy)
+    bike_heading = np.array(bike_df['angle_ekf'].to_numpy(), dtype=float)  # (N,) in radians
+
+    records = {}
+    for key, cl_spl in centerlines_spl_dict.items():
+        x_start, y_start = splev(0, cl_spl[0])
+        x_end,   y_end   = splev(1, cl_spl[0])
+        start_pt = np.array([x_start, y_start])
+        end_pt   = np.array([x_end,   y_end])
+
+        _, spl_total_dist = _compute_distance_traveled(
+            np.column_stack(splev(np.linspace(0, 1, N), cl_spl[0]))
+        )
+
+        def _eval_alignment(t0, forward=True):
+            if forward:
+                all_t = np.clip(t0 + bike_cum_dist / spl_total_dist, 0, 1)
+            else:
+                all_t = np.clip(t0 - bike_cum_dist / spl_total_dist, 0, 1)
+            cx, cy = splev(all_t, cl_spl[0])
+            cl_xy = np.column_stack((cx, cy))
+            dist = np.mean(np.linalg.norm(bike_xy - cl_xy, axis=1))
+            curv_err = np.sqrt(np.mean((curv_traj - _compute_curvature(cl_xy))**2))
+            return dist, curv_err, all_t
+
+        def _heading_error(all_t, forward=True):
+            # Centerline tangent heading at each t via spline derivative
+            dx_cl, dy_cl = splev(all_t, cl_spl[0], der=1)
+            cl_headings = np.arctan2(dy_cl, dx_cl)  # radians, (N,)
+
+            # If backward, flip centerline direction by 180°
+            if not forward:
+                cl_headings = cl_headings + np.pi
+
+            # Angular difference at each point, wrapped to [0, 180°]
+            ang_diff = np.abs((bike_heading - cl_headings + np.pi) % (2 * np.pi) - np.pi)
+
+            # Filter out stationary points where heading is unreliable
+            valid = np.isfinite(bike_heading) & np.isfinite(cl_headings)
+            if valid.sum() == 0:
+                return np.pi  # worst case
+
+            return float(np.sqrt(np.mean(ang_diff[valid] ** 2)))  # RMSE in radians
+
+        # From start
+        t_start = float(np.clip(np.linalg.norm(bike_xy[0] - start_pt) / spl_total_dist, 0, 1))
+        d_fwd, c_fwd, all_t_fwd = _eval_alignment(t_start, forward=True)
+        h_fwd = _heading_error(all_t_fwd, forward=True)
+
+        # From end
+        cl_vec = end_pt - start_pt
+        t_end = float(np.clip(
+            np.dot(bike_xy[-1] - start_pt, cl_vec) / (np.dot(cl_vec, cl_vec) + 1e-9), 0, 1
+        ))
+        d_bwd, c_bwd, all_t_bwd = _eval_alignment(t_end, forward=False)
+        h_bwd = _heading_error(all_t_bwd, forward=False)
+
+        # Pick best direction
+        if d_fwd <= d_bwd:
+            best_dist, best_curv, heading_err = d_fwd, c_fwd, h_fwd
+        else:
+            best_dist, best_curv, heading_err = d_bwd, c_bwd, h_bwd
+
+        records[key] = {
+            'best_dist':   best_dist,
+            'best_curv':   best_curv,
+            'end_dist':    0.5 * np.linalg.norm(bike_xy[0] - start_pt) +
+                           0.5 * np.linalg.norm(bike_xy[-1] - end_pt),
+            'heading_err': heading_err,
+        }
+
+    df_scores = pd.DataFrame(records).T
+    norm = lambda col: col / (col.mean() + 1e-6)
+    df_scores['score'] = (w_dist    * norm(df_scores['best_dist']) +
+                          w_curv    * norm(df_scores['best_curv']) +
+                          w_end     * norm(df_scores['end_dist'])  +
+                          w_heading * norm(df_scores['heading_err']))
+
+    return df_scores['score'].idxmin()
+
+

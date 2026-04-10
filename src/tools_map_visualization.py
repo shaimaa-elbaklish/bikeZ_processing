@@ -161,17 +161,25 @@ def plot_all_centerlines_splines_xy_2056(m, splines_dict, colors_dict=None, line
 
 def plot_bicycles_trajectories_xy_2056(m, traj_df, linecolor='black', 
                                        lineweight=5, linealpha=0.8, 
-                                       linedashed=False, add_layer_control=False):
+                                       linedashed=False, add_layer_control=False,
+                                       ekf=True):
     df = traj_df.copy()
-    if 'lat_ekf' not in df.columns or 'lon_ekf' not in df.columns:
-        df["lon_ekf"], df["lat_ekf"] = project_xy2056_to_lonlat(df["x_act_ekf"].values, df["y_act_ekf"].values)
     if add_layer_control:
         fg = folium.FeatureGroup(name="Trajectories", show=False)  # hide by default
-    for bike_id in df['veh_id'].unique():
-        traj = df[(df["veh_id"] == bike_id)]
-        plot_line_latlon(fg if add_layer_control else m, 
-                         traj[['lat_ekf', 'lon_ekf']].values.tolist(), f"Bicycle {bike_id}", 
-                         linecolor, lineweight, linealpha, linedashed, start_point=False)
+    if ekf:
+        if 'lat_ekf' not in df.columns or 'lon_ekf' not in df.columns:
+            df["lon_ekf"], df["lat_ekf"] = project_xy2056_to_lonlat(df["x_act_ekf"].values, df["y_act_ekf"].values)
+        for bike_id in df['veh_id'].unique():
+            traj = df[(df["veh_id"] == bike_id)]
+            plot_line_latlon(fg if add_layer_control else m, 
+                             traj[['lat_ekf', 'lon_ekf']].values.tolist(), f"Bicycle {bike_id}", 
+                             linecolor, lineweight, linealpha, linedashed, start_point=False)
+    else:
+        for bike_id in df['veh_id'].unique():
+            traj = df[(df["veh_id"] == bike_id)]
+            plot_line_latlon(fg if add_layer_control else m, 
+                             traj[['lat', 'lon']].values.tolist(), f"Bicycle {bike_id}", 
+                             linecolor, lineweight, linealpha, linedashed, start_point=False)
         
     if add_layer_control:
         fg.add_to(m)
