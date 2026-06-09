@@ -250,9 +250,9 @@ Togglable layer groups (via top-right layer control):
 
 | Plot | X-axis | Y-axis | Notes |
 |---|---|---|---|
-| A · Cumulative s vs d | Continuous s stitched across segment boundaries [m] | d [m] | vrect shading for `is_reverse` (salmon) and `in_bike_lane` (green) |
-| B · s_native vs d_native | s_native [m] | d_native [m] | One trace per segment; time is the animation dimension |
-| C · Speed · ṡ · ḋ vs time | t [s] | km/h | `speed_ekf` grey dashed; `s_dot` / `d_dot` solid/dotted per segment colour; vrect flags |
+| A. Cumulative s vs d | Continuous s stitched across segment boundaries [m] | d [m] | vrect shading for `is_reverse` (salmon) and `in_bike_lane` (green) |
+| B. s_native vs d_native | s_native [m] | d_native [m] | One trace per segment; time is the animation dimension |
+| C. Speed, $\dot{s}$ , $\dot{d}$ vs time | t [s] | km/h | `speed_ekf` grey dashed; `s_dot` / `d_dot` solid/dotted per segment colour; vrect flags |
 
 Click any plot to jump the scrubber to that position. All panels share the same segment colour palette.
 
