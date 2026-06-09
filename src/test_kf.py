@@ -30,14 +30,14 @@ from tools_kalman import calculate_kalman_filtered_trajectory
 BikeZ_Config = BikeZ_Config()
 
 # Specify Trajectory File
-date = BikeZ_Config.avail_dates[1]
+date = BikeZ_Config.avail_dates[0]
 campaign = f"Zurich_2025{date[5:7]}" # June or September
 mode = BikeZ_Config.avail_modes[0] # Bike
 data_root = BikeZ_Config.data_root[campaign][mode]
 
-intersection, code = BikeZ_Config.avail_intersections[date][0]
+intersection, code = BikeZ_Config.avail_intersections[date][3]
 # all_timeslots = BikeZ_Config.avail_timeslots[date][(intersection, code)]
-timeslot = BikeZ_Config.avail_timeslots[date][(intersection, code)][0] # 'AM2'
+timeslot = BikeZ_Config.avail_timeslots[date][(intersection, code)][-3] # 'AM2'
 
 XY_2056_Bounds = BikeZ_Config.XY_2056_Bounds[date][(intersection, code)]
 X_2056_offset = XY_2056_Bounds[0][0]
@@ -52,7 +52,6 @@ df = pd.read_csv(data_root + f"{date}/{intersection}/{filename}")
 # add a column as a missing flag
 df['missing'] = (df['speed(km/h)'] == -1)
 # print(df.loc[df['missing'], 'veh_id'].unique())
-# IDs with missing values: 39,  44,  78,  92,  96, 140, 154, 282, 283
 
 df = df.rename(columns={
     'speed(km/h)': 'speed', 
@@ -74,19 +73,60 @@ ref_time = df.loc[(df['datetime'] == ref_datetime) & (df['time'] >= 0), 'time'].
 df['time'] = df['datetime'].apply(lambda x: np.round((x - ref_datetime).total_seconds() + ref_time, decimals=3))
 df = df.sort_values(by=['veh_id', 'time'], ascending=True)
 
+
+from tools_filtering import estimate_heading, estimate_angular_velocity
+# Estimate heading angle (radians)
+df = estimate_heading(df, speed_threshold=1.0, window_s=0.8, fps=BikeZ_Config.fps, smooth_method='savgol')
+# Estimate angular velocity (rad/s)
+df = estimate_angular_velocity(df, smooth_window_s=0.4, fps=BikeZ_Config.fps, smooth_method='rolling')
+
+# # Log clipped entries per vehicle
+# clipped = df[df['angvel_clipped']]
+# max_angvel_rad = 3.0
+# if not clipped.empty:
+#     # log.warning(f"{len(clipped)} frames clipped to ±{max_angvel_rad} rad/s")
+#     print(f"{len(clipped)} frames clipped to ±{max_angvel_rad} rad/s")
+#     for veh_id, count in clipped.groupby('veh_id').size().items():
+#         # log.debug(f"  veh_id={veh_id}: {count} frames clipped")
+#         print(f"  veh_id={veh_id}: {count} frames clipped")
+
+from tools_filtering import _pca_heading
+for veh_id, veh_df in df.groupby('veh_id'):
+    if veh_df['angle'].isna().all():
+        h = _pca_heading(veh_df)
+        df.loc[df['veh_id'] == veh_id, 'angle']       = h
+        df.loc[df['veh_id'] == veh_id, 'angular_vel'] = 0.0
+        print(
+            f'veh={veh_id}: stationary, no heading data — '
+            f'PCA heading={np.degrees(h):.1f}° assigned as constant.'
+        )
+
 # #############################################################################
 # MAIN: Test EKF for a single bike with missing data
 # #############################################################################
 
-sel_bike_id = 269 # 39 (with missing) # 299
+# from _logger import Logger 
+# log = Logger(date, intersection, code, timeslot, "KF_TEST")
+
+# counts = df.groupby('veh_id').size()
+# longest_id = counts.idxmax() # 189, 31, (misisng) 99, 116
+# top2 = counts.nlargest(2)
+# turning bikes: 68, (missing) 14
+
+sel_bike_id = 415
 bike_df = df[(df['veh_id'] == sel_bike_id)]
 bike_df = bike_df.sort_values(by='time', ascending=True)
 
-Qk = np.diag([1.0, 1.0, 10.0, 10.0]).astype(np.float64)  # covariance matrix of error of state
-Rk = np.diag([5.0, 5.0, 1.0, 1.0]).astype(np.float64)    # covariance matrix of error of output
+Qk = np.diag([1.0, 1.0, 1.0, 10.0]).astype(np.float64)   # covariance matrix of error of state
+Rk = np.diag([1.0, 1.0, 5.0, 10.0]).astype(np.float64)   # covariance matrix of error of output
+
+import time
+start = time.perf_counter()
 filtered_bike_df = calculate_kalman_filtered_trajectory(
-    bike_df, Qk, Rk, fps=BikeZ_Config.fps
+    bike_df, Qk, Rk, fps=BikeZ_Config.fps, debug=True #, log=log
 )
+end = time.perf_counter()
+print(f"Elapsed time: {end - start:.6f} seconds")
 
 # draw individual bicycle
 bike_df = bike_df[(~bike_df['missing'])]
@@ -103,10 +143,11 @@ axs[1].set_xlabel('Speed [km/h]')
 axs[1].set_ylabel('PDF')
 axs[1].legend()
 
-axs[2].plot(bike_df['time'], bike_df['speed'], label='Original')
-axs[2].plot(filtered_bike_df['time'], filtered_bike_df['speed'], label='EKF')
+axs[2].plot(bike_df['time'], bike_df['speed']/3.6, label='Original')
+axs[2].plot(filtered_bike_df['time'], filtered_bike_df['speed']/3.6, label='EKF')
 axs[2].set_xlabel('Time [s]')
-axs[2].set_ylabel('Speed [km/h]')
+axs[2].set_ylabel('Speed [m/s]')
+axs[2].set_ylim([0, 6])
 axs[2].legend()
 
 fig.tight_layout()
@@ -130,5 +171,23 @@ axs[1].set_xlabel('Time [s]')
 axs[1].set_ylabel('Jerk [m/s$^3$]')
 axs[1].legend()
 axs[1].set_ylim([-5, 5])
+
+fig.tight_layout()
+
+
+fig, axs = plt.subplots(1, 2, figsize=(8, 4))
+axs[0].plot(bike_df['time'], bike_df['angle']*180/np.pi, label='Original')
+axs[0].plot(filtered_bike_df['time'], filtered_bike_df['angle']*180/np.pi, label='Current EKF', alpha=0.75)
+axs[0].set_xlabel('Time [s]')
+axs[0].set_ylabel('Heading Angle [deg]')
+axs[0].legend()
+axs[0].set_ylim([-180, 180])
+
+axs[1].plot(bike_df['time'], bike_df['angular_vel'], label='Original')
+axs[1].plot(filtered_bike_df['time'], filtered_bike_df['angular_vel'], label='Current EKF', alpha=0.75)
+axs[1].set_xlabel('Time [s]')
+axs[1].set_ylabel('Angular Velocity [rad/s]')
+axs[1].legend()
+axs[1].set_ylim([-4, 4])
 
 fig.tight_layout()

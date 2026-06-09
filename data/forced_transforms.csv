@@ -1,0 +1,9 @@
+date,intersection,code,timeslot,mode,veh_id,forced_chain
+16/06/2025,D1,A,AM1,bike,31,"[turn_Roentgenstr_EB_2_Zollstr_EB, Zollstr_EB]"
+16/06/2025,D1,A,AM1,bike,32,[turn_LangstrS_NB_2_LangstrN_NB]
+16/06/2025,D1,A,AM1,bike,46,[Roentgenstr_EB]
+16/06/2025,D1,A,AM1,bike,94,"[LangstrS_NB, turn_LangstrS_NB_2_Roentgenstr_WB, LangstrS_SB]"
+16/06/2025,D1,A,AM1,bike,178,"[turn_Roentgenstr_EB_2_Zollstr_EB, Zollstr_EB, turn_Zollstr_EB_2_Matteng_NB, Matteng_NB]"
+16/06/2025,D1,A,AM1,bike,209,"[Roentgenstr_EB, turn_Roentgenstr_EB_2_Zollstr_EB, Zollstr_EB, turn_Zollstr_EB_2_Matteng_NB, Matteng_NB]"
+16/06/2025,D1,A,AM1,bike,243,"[turn_Roentgenstr_EB_2_Zollstr_EB, Zollstr_EB]"
+16/06/2025,D1,A,AM1,bike,290,"[LangstrS_NB, turn_LangstrS_NB_2_Zollstr_EB, Zollstr_EB, turn_Zollstr_EB_2_Matteng_NB, Matteng_NB]"

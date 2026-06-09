@@ -11,16 +11,24 @@ Submitted to:   JOURNAL
 # #############################################################################
 # IMPORTS
 # #############################################################################
-from tools_kalman import calculate_kalman_filtered_trajectory
-from _constants import BikeZ_Config
-from tqdm import tqdm
-import matplotlib.pyplot as plt
-import pandas as pd
-import numpy as np
 import gc
 import sys
+import argparse
 import warnings
 warnings.filterwarnings("ignore")
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+from tqdm import tqdm
+
+from _logger import Logger
+from _constants import BikeZ_Config 
+from tools_filtering import estimate_heading
+from tools_filtering import estimate_angular_velocity
+from tools_filtering import _pca_heading
+from tools_kalman import calculate_kalman_filtered_trajectory
 
 
 # #############################################################################
@@ -29,20 +37,30 @@ warnings.filterwarnings("ignore")
 # Configuration
 BikeZ_Config = BikeZ_Config()
 
-# Specify Trajectory File
-date = BikeZ_Config.avail_dates[0]
-campaign = f"Zurich_2025{date[5:7]}"  # June or September
-mode = BikeZ_Config.avail_modes[0]  # 0: Bike, 1: Vehicle
-data_root = BikeZ_Config.data_root[campaign][mode]
+parser = argparse.ArgumentParser(description="EKF+Gap Inference for BikeZ trajectories")
+parser.add_argument("date",          type=str, help="Date string, e.g. 2025-06-16")
+parser.add_argument("mode",          type=str, help="Mode: bike or vehicle")
+parser.add_argument("intersection",  type=str, help="Intersection ID, e.g. D3")
+parser.add_argument("code",          type=str, help="Code letter, e.g. E")
+parser.add_argument("timeslot",      type=str, help="Timeslot, e.g. AM1")
+parser.add_argument("debug",         type=str, help="Enable debug plots: True or False")
+args = parser.parse_args()
 
-intersection, code = BikeZ_Config.avail_intersections[date][3]
-timeslot = BikeZ_Config.avail_timeslots[date][(intersection, code)][0] # 'PM2'
+date         = args.date
+mode         = args.mode
+intersection = args.intersection
+code         = args.code
+timeslot     = args.timeslot
+debug_mode   = args.debug.lower() == "true"
+
+campaign  = f"Zurich_2025{date[5:7]}"
+data_root = BikeZ_Config.data_root[campaign][mode]
 
 XY_2056_Bounds = BikeZ_Config.XY_2056_Bounds[date][(intersection, code)]
 X_2056_offset = XY_2056_Bounds[0][0]
 Y_2056_offset = XY_2056_Bounds[1][0]
 
-sys.exit(1)
+log = Logger(date, intersection, code, timeslot, f"KF_{mode}")
 
 # #############################################################################
 # MAIN
@@ -77,11 +95,27 @@ ref_time = df.loc[(df['datetime'] == ref_datetime) & (df['time'] >= 0), 'time'].
 df['time'] = df['datetime'].apply(lambda x: np.round((x - ref_datetime).total_seconds() + ref_time, decimals=3))
 df = df.sort_values(by=['veh_id', 'time'], ascending=True)
 
+
+# Estimate heading angle (radians)
+df = estimate_heading(df, speed_threshold=1.0, window_s=0.8, fps=BikeZ_Config.fps, smooth_method='savgol')
+# Estimate angular velocity (rad/s)
+df = estimate_angular_velocity(df, smooth_window_s=0.4, fps=BikeZ_Config.fps, smooth_method='rolling')
+# Handle stationary vehicles
+for veh_id, veh_df in df.groupby('veh_id'):
+    if veh_df['angle'].isna().all():
+        h = _pca_heading(veh_df)
+        df.loc[df['veh_id'] == veh_id, 'angle']       = h
+        df.loc[df['veh_id'] == veh_id, 'angular_vel'] = 0.0
+        log.warning(
+            f'veh={veh_id}: stationary, no heading data — '
+            f'PCA heading={np.degrees(h):.1f}° assigned as constant.'
+        )
+
 # #############################################################################
 # MAIN: Perform EKF for all bicycles
 # #############################################################################
-Qk = np.diag([1.0, 1.0, 10.0, 10.0]).astype(np.float64)  # covariance matrix of error of state
-Rk = np.diag([5.0, 5.0, 1.0, 1.0]).astype(np.float64)    # covariance matrix of error of output
+Qk = np.diag([1.0, 1.0, 1.0, 10.0]).astype(np.float64)   # covariance matrix of error of state
+Rk = np.diag([1.0, 1.0, 5.0, 10.0]).astype(np.float64)   # covariance matrix of error of output
 
 filt_df = None
 # unique_ids = [35, 86, 22, 72, 152, 161] # test
@@ -90,12 +124,14 @@ for veh_id in tqdm(unique_ids, desc="Processing EKF on Bicycles"):
     veh_df = df[df['veh_id'] == veh_id].copy()
     veh_df = veh_df.sort_values(by='time', ascending=True)
     filt_bike_df = calculate_kalman_filtered_trajectory(
-        veh_df, Qk, Rk, fps=BikeZ_Config.fps
+        veh_df, Qk, Rk, fps=BikeZ_Config.fps, debug=debug_mode, log=log
     )
-    filt_bike_df = filt_bike_df[['time', 'x', 'y', 'speed', 'angle', 'a']]
+    filt_bike_df = filt_bike_df[['time', 'x', 'y', 'speed', 'angle', 
+                                 'a', 'angular_vel']]
     filt_bike_df = filt_bike_df.rename(
         columns={'x': 'x_ekf', 'y': 'y_ekf', 'speed': 'speed_ekf', 
-                 'angle': 'angle_ekf', 'a': 'a_ekf'}
+                 'angle': 'angle_ekf', 'a': 'a_ekf',
+                 'angular_vel': 'angular_vel_ekf'}
     )
     veh_df = veh_df.merge(filt_bike_df, on=['time'], how='left')    
     if filt_df is None:
@@ -114,35 +150,36 @@ filt_df.to_csv(data_root + f"{date}/{intersection}/{filename}", index=False)
 # filt_df = pd.read_csv(data_root + f"{date}/{intersection}/{filename}")
 # unique_ids = df['veh_id'].unique()
 
-# oveview of trajectories
-fig, axs = plt.subplots(1, 2, figsize=(8, 4))
-for veh_id in unique_ids:
-    veh_df = df[(df['veh_id'] == veh_id)].copy()  # (~df['missing']) &
-    veh_df.loc[veh_df['missing'], 'x'] = pd.NA
-    veh_df.loc[veh_df['missing'], 'y'] = pd.NA
-    # axs[0].scatter(veh_df['x'], veh_df['y'], s=1, color='b')
-    axs[0].plot(veh_df['x'], veh_df['y'], color='b')
+# # oveview of trajectories
+# fig, axs = plt.subplots(1, 2, figsize=(8, 4))
+# for veh_id in unique_ids:
+#     veh_df = df[(df['veh_id'] == veh_id)].copy()  # (~df['missing']) &
+#     veh_df.loc[veh_df['missing'], 'x'] = pd.NA
+#     veh_df.loc[veh_df['missing'], 'y'] = pd.NA
+#     # axs[0].scatter(veh_df['x'], veh_df['y'], s=1, color='b')
+#     axs[0].plot(veh_df['x'], veh_df['y'], color='b')
 
-    veh_df = filt_df[filt_df['veh_id'] == veh_id]
-    if veh_df[['x_ekf', 'y_ekf', 'speed_ekf', 'angle_ekf']].isna().any().any():
-        print(veh_id)
-        sys.exit(1)
-    # axs[1].scatter(veh_df['x_ekf'], veh_df['y_ekf'], s=1, color='b')
-    axs[1].plot(veh_df['x_ekf'], veh_df['y_ekf'], color='b')
+#     veh_df = filt_df[filt_df['veh_id'] == veh_id]
+#     if veh_df[['x_ekf', 'y_ekf', 'speed_ekf', 'angle_ekf']].isna().any().any():
+#         print(veh_id)
+#         sys.exit(1)
+#     # axs[1].scatter(veh_df['x_ekf'], veh_df['y_ekf'], s=1, color='b')
+#     axs[1].plot(veh_df['x_ekf'], veh_df['y_ekf'], color='b')
 
-axs[0].set_xlabel('X_2056 - X_ref [m]')
-axs[0].set_ylabel('Y_2056 - Y_ref [m]')
-axs[0].set_xlim([10, 150])
-axs[0].set_ylim([10, 125])
-axs[0].set_title('Original')
+# axs[0].set_xlabel('X_2056 - X_ref [m]')
+# axs[0].set_ylabel('Y_2056 - Y_ref [m]')
+# axs[0].set_xlim([10, 150])
+# axs[0].set_ylim([10, 125])
+# axs[0].set_title('Original')
 
-axs[1].set_xlabel('X_2056 - X_ref [m]')
-axs[1].set_ylabel('Y_2056 - Y_ref [m]')
-axs[1].set_xlim([10, 150])
-axs[1].set_ylim([10, 125])
-axs[1].set_title('EKF')
+# axs[1].set_xlabel('X_2056 - X_ref [m]')
+# axs[1].set_ylabel('Y_2056 - Y_ref [m]')
+# axs[1].set_xlim([10, 150])
+# axs[1].set_ylim([10, 125])
+# axs[1].set_title('EKF')
 
-fig.tight_layout()
+# fig.tight_layout()
+# plt.show()
 
 # Get some statistics
 mae_x = np.nanmean(abs(filt_df.loc[(
@@ -158,3 +195,7 @@ rmse_y = np.sqrt(np.nanmean(np.square(filt_df.loc[(
     ~filt_df['missing']), 'y'] - filt_df.loc[(~filt_df['missing']), 'y_ekf'])))
 rmse_v = np.sqrt(np.nanmean(np.square(filt_df.loc[(
     ~filt_df['missing']), 'speed'] - filt_df.loc[(~filt_df['missing']), 'speed_ekf'])))
+
+log.section('EKF + Gap Inference Statistics')
+log.info(f'MAE: x = {mae_x:.6f} m, y = {mae_y:.6f} m, v = {mae_v:.6f} km/h')
+log.info(f'RMSE: x = {rmse_x:.6f} m, y = {rmse_y:.6f} m, v = {rmse_v:.6f} km/h')

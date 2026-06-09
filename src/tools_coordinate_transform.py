@@ -30,7 +30,9 @@ from numpy.lib.stride_tricks import as_strided
 ###############################################################################
 # FUNCTIONS
 ###############################################################################
-def fit_roadway_centerline_spline(centerline_coords: list, smoothing: float = 0, coordsys: str = 'latlon'):
+def fit_roadway_centerline_spline(centerline_coords: list, smoothing: float = 0, 
+                                  coordsys: str = 'latlon', x_offset: float = 0,
+                                  y_offset: float = 0):
     """
     Fits a B-spline for the roadway centerline in XY:2056 coordinate system.
 
@@ -42,6 +44,10 @@ def fit_roadway_centerline_spline(centerline_coords: list, smoothing: float = 0,
         B-spline smoothing factor, between 0 and 1. The default is 0.
     coordsys: str, optional
         String to denote the coordinate system used (latlon OR 2056)
+    x_offset: float, optional
+        float to improve numerical stability, offset XY:2056 in x direction
+    y_offset: float, optional
+        float to improve numerical stability, offset XY:2056 in y direction
 
     Returns
     -------
@@ -67,6 +73,8 @@ def fit_roadway_centerline_spline(centerline_coords: list, smoothing: float = 0,
         raise NotImplementedError
 
     x, y = zip(*xy2056_centerline_coords)
+    x = np.asarray(x) - x_offset
+    y = np.asarray(y) - y_offset
     tck, u = splprep([x, y], s=smoothing)
     unew = np.linspace(0, 1, num=500)
     spline_points = np.array(splev(unew, tck)).T  # shape (N, 2)
@@ -87,7 +95,9 @@ def project_point_onto_spline(point, tck):
     return t_star, closest_point
 
 
-def convert_xy2056_to_roadway_coordinates(point, tck, unew, cum_dist):
+def convert_xy2056_to_roadway_coordinates(point, tck, unew, cum_dist, 
+                                          x_offset: float = 0, y_offset: float = 0):
+    point = point - np.asarray([x_offset, y_offset])
     t_star, closest_point = project_point_onto_spline(point, tck)
     
     # Longitudinal s coordinate
@@ -107,7 +117,8 @@ def convert_xy2056_to_roadway_coordinates(point, tck, unew, cum_dist):
     return t_star, tangent, normal, s, d
 
 
-def convert_roadway_to_xy2056_coordinates(s, d, tck, unew, cum_dist):
+def convert_roadway_to_xy2056_coordinates(s, d, tck, unew, cum_dist, 
+                                          x_offset: float = 0, y_offset: float = 0):
     # Step 1: find t such that spline arc length is s
     f_inv = interp1d(cum_dist, unew, bounds_error=False, fill_value=(unew[0], unew[-1]))
     t = f_inv(s)
@@ -126,6 +137,7 @@ def convert_roadway_to_xy2056_coordinates(s, d, tck, unew, cum_dist):
 
     # Step 5: offset by d in the normal direction
     point = center + d * normal
+    point = point + np.asarray([x_offset, y_offset])
 
     return point[0], point[1]  # returns (x, y)
 
@@ -198,100 +210,63 @@ def densify_linestring(line = None, latlon_pts = None, num_segments=5):
     return LineString(new_points)
 
 
-def connect_lines(xy1, xy2, n_connector=100, scale=0.4,
-                           return_full=True, angle_threshold_deg=5,
-                           force_method=None, verbose=False):
+def project_line_onto_spline(line, stop_line, tck, unew, cum_dist, x_offset, y_offset):
     """
-    Connect two centerline fragments smoothly using a clothoid when possible,
-    falling back to a cubic Hermite for nearly straight cases.
+    Find the arc-length s where a stop/yield LineString crosses the spline.
 
     Parameters
     ----------
-    xy1, xy2 : list-like of (x, y)
-        Input coordinate sequences (e.g., EPSG:2056).
-    n_connector : int
-        Number of points in the connecting curve.
-    scale : float
-        Tangent magnitude scale for Hermite fallback.
-    return_full : bool
-        If True, returns merged coords (xy1 + connector + xy2).
-    angle_threshold_deg : float
-        If the heading difference is smaller than this, use Hermite/linear interpolation.
-    force_method : {'clothoid', 'hermite', None}
-        Force method regardless of angle. None = automatic.
-    verbose : bool
-        Print info if clothoid fitting fails or is skipped.
+    line      : Shapely LineString — original centerline in WGS84
+    stop_line : Shapely LineString — stop or yield line in WGS84
+    tck, unew, cum_dist : spline representation (in EPSG:2056)
 
     Returns
     -------
-    merged : list of (x, y)
-    connector : ndarray (n_connector, 2)
-    method : str ('clothoid' or 'hermite')
+    s : float — arc-length [m] where stop/yield line crosses the spline
     """
-    def _to_numpy(arr):
-        arr = np.asarray(arr)
-        if arr.ndim != 2 or arr.shape[1] != 2:
-            raise ValueError("Input must be (N,2) array-like.")
-        return arr
+    transformer_to_2056 = Transformer.from_crs("EPSG:4326", "EPSG:2056", always_xy=True)
 
-    def _unit(v):
-        n = np.linalg.norm(v)
-        return v / n if n > 1e-9 else v
+    # Step 1 — find intersection point in WGS84 using Shapely
+    intersection = line.intersection(stop_line)
 
-    def hermite_connect(p0, p1, t0, t1, n_points):
-        # Classic cubic Hermite interpolation
-        s = np.linspace(0, 1, n_points)
-        h00 = 2*s**3 - 3*s**2 + 1
-        h10 = s**3 - 2*s**2 + s
-        h01 = -2*s**3 + 3*s**2
-        h11 = s**3 - s**2
-        pts = np.outer(h00, p0) + np.outer(h10, t0) + np.outer(h01, p1) + np.outer(h11, t1)
-        return pts
+    if intersection.is_empty:
+        raise ValueError("Centerline and stop/yield line do not intersect.")
 
-    a = _to_numpy(xy1)
-    b = _to_numpy(xy2)
-    if a.shape[0] < 2 or b.shape[0] < 2:
-        raise ValueError("Each line must have at least two points to estimate headings.")
+    # Handle cases where intersection is a Point or MultiPoint
+    if intersection.geom_type == 'Point':
+        pt = intersection
+    elif intersection.geom_type == 'MultiPoint':
+        # Take the point closest to the stop_line midpoint
+        mid = stop_line.interpolate(0.5, normalized=True)
+        pt  = min(intersection.geoms, key=lambda p: p.distance(mid))
+    else:
+        # GeometryCollection — extract first Point
+        pts = [g for g in intersection.geoms if g.geom_type == 'Point']
+        if not pts:
+            raise ValueError(f"Unexpected intersection geometry type: {intersection.geom_type}")
+        pt = pts[0]
 
-    p0, p1 = a[-1], b[0]
-    v0 = _unit(a[-1] - a[-2])
-    v1 = _unit(b[1] - b[0])
-    theta0, theta1 = np.arctan2(v0[1], v0[0]), np.arctan2(v1[1], v1[0])
-    angle_diff = np.rad2deg(np.arctan2(np.sin(theta1 - theta0), np.cos(theta1 - theta0)))
-    angle_diff_abs = abs(angle_diff)
+    # Step 2 — transform intersection point to EPSG:2056, and subtract local origin
+    x_2056, y_2056 = transformer_to_2056.transform(pt.x, pt.y)
+    point_2056 = np.array([x_2056, y_2056])
 
-    # Degenerate case
-    if np.allclose(p0, p1):
-        merged = np.vstack([a, b])
-        return (merged.tolist(), np.empty((0, 2)), "none")
+    # Step 3 — project onto spline to get s
+    _, _, _, s, _ = convert_xy2056_to_roadway_coordinates(point_2056, tck, unew, cum_dist, x_offset, y_offset)
+    return float(s)
 
-    method = "clothoid"
-    connector = None
 
-    # Method override or automatic choice
-    if force_method == "hermite" or (force_method is None and angle_diff_abs < angle_threshold_deg):
-        method = "hermite"
-
-    if method == "clothoid":
-        try:
-            clothoid = Clothoid.G1Hermite(p0[0], p0[1], theta0, p1[0], p1[1], theta1)
-            x_vals, y_vals = clothoid.SampleXY(n_connector)
-            connector = np.column_stack((x_vals, y_vals))
-        except Exception as e:
-            if verbose:
-                print(f"[Warning] Clothoid fitting failed ({e}); using Hermite fallback.")
-            method = "hermite"
-
-    if method == "hermite":
-        d = np.linalg.norm(p1 - p0)
-        m0 = v0 * (scale * d)
-        m1 = v1 * (scale * d)
-        connector = hermite_connect(p0, p1, m0, m1, n_connector)
-
-    # Clean up endpoints
-    connector_inner = connector[1:-1] if connector.shape[0] > 2 else np.empty((0, 2))
-    merged = np.vstack([a, connector_inner, b])
-    return (merged.tolist(), connector, method)
+def _compute_curvature(xy, eps=1e-6):
+    """
+    xy: array (N,2)
+    returns curvature (N,)
+    """
+    dx = np.gradient(xy[:, 0])
+    dy = np.gradient(xy[:, 1])
+    ddx = np.gradient(dx)
+    ddy = np.gradient(dy)
+    num = dx * ddy - dy * ddx
+    den = (dx*dx + dy*dy)**1.5 + eps
+    return num / den
 
 
 def connect_lines_g2(xy1, xy2, n_connector=100, scale=0.4,
@@ -382,237 +357,73 @@ def connect_lines_g2(xy1, xy2, n_connector=100, scale=0.4,
     return (merged_clean.tolist(), connector, method)
 
 
-def match_bicycle_to_centerline_v1(bike_df, centerlines_start_end_pts_dict):
-    distances = {}
-    for key, pts in centerlines_start_end_pts_dict.items():
-        start_pt, end_pt = pts
-        start_dist = np.linalg.norm(np.asarray(start_pt) - bike_df.iloc[0][['x_act_ekf', 'y_act_ekf']].to_numpy())
-        end_dist = np.linalg.norm(np.asarray(end_pt) - bike_df.iloc[-1][['x_act_ekf', 'y_act_ekf']].to_numpy())
-        distances[key] = {'start': start_dist, 'end': end_dist}
-    distances = pd.DataFrame(distances).T
-    min_start_dist = distances['start'].min()
-    distances = distances[abs(distances['start'] - min_start_dist) <= 1e-01]
-    return distances['end'].idxmin()
-
-
-def _compute_distance_traveled(bike_xy):
-    # differences between consecutive points
-    diffs = np.diff(bike_xy, axis=0)   # shape (T-1, 2)
-    # Euclidean distances
-    segment_lengths = np.sqrt((diffs**2).sum(axis=1))  # (T-1,)
-    # cumulative sum, include 0 at start
-    distances = np.concatenate([[0], np.cumsum(segment_lengths)])  # (T,)
-    return distances, np.sum(segment_lengths)
-
-
-def match_bicycle_to_centerline(bike_df, centerlines_spl_dict, w_dist=1.0, w_curv=0.5, w_end=0.0):  
-    N = len(bike_df)
-    
-    bike_xy = bike_df[['x_act_ekf', 'y_act_ekf']].to_numpy()
-    bike_cum_dist, bike_total_dist = _compute_distance_traveled(bike_xy)
-    curv_traj = _compute_curvature(bike_xy)
-    
-    distances = {}
-    for key, cl_spl in centerlines_spl_dict.items():
-        x_start, y_start = splev(0, cl_spl[0])
-        start_pt = np.asarray([x_start, y_start])
-        x_end, y_end = splev(1, cl_spl[0])
-        end_pt = np.asarray([x_end, y_end])
-        
-        # Start and End Point Distances
-        distances[key] = {'start_dist': np.linalg.norm(bike_xy[0] - start_pt), 'end_dist': np.linalg.norm(bike_xy[-1] - end_pt)}
-        
-        # From Start
-        x_spline, y_spline = splev(np.linspace(0, 1, N), cl_spl[0])
-        _, spl_total_dist = _compute_distance_traveled(np.column_stack([x_spline, y_spline]))
-        
-        t_start = min(1, max(0, np.linalg.norm(bike_xy[0]-start_pt)/spl_total_dist))
-        all_t = np.clip(t_start + bike_cum_dist/spl_total_dist, 0, 1)
-        x_spline, y_spline = splev(all_t, cl_spl[0])
-        cl_xy = np.column_stack((x_spline, y_spline))
-        dist = np.linalg.norm(bike_xy - cl_xy)
-        curv_cl = _compute_curvature(cl_xy)
-        curv_err = np.sqrt(np.mean(np.square(curv_traj - curv_cl)))
-        distances[key].update({'from_start_dist': dist, 'from_start_curv': curv_err})
-        
-        # From End
-        t_end = max(0, min(1, np.mean((bike_xy[-1] - start_pt) / (end_pt - start_pt))))
-        all_t = np.clip(t_end - bike_cum_dist/spl_total_dist, 0, 1)
-        x_spline, y_spline = splev(all_t, cl_spl[0])
-        cl_xy = np.column_stack((x_spline, y_spline))
-        dist = np.linalg.norm(bike_xy - cl_xy)
-        curv_cl = _compute_curvature(cl_xy)
-        curv_err = np.sqrt(np.mean(np.square(curv_traj - curv_cl)))
-        distances[key].update({'from_end_dist': dist, 'from_end_curv': curv_err})
-        
-    
-    distances = pd.DataFrame(distances).T
-    
-    avg_dist = np.median(1.0*distances['from_start_dist'] + 0*distances['from_end_dist'])
-    avg_curv = np.median(1.0*distances['from_start_curv'] + 0*distances['from_end_curv'])
-    avg_end = np.median(0.5*distances['start_dist'] + 0.5*distances['end_dist'])
-    
-    distances['combined_dist'] = w_dist * (1.0*distances['from_start_dist'] + 0*distances['from_end_dist']) / avg_dist + \
-                                 w_curv * (1.0*distances['from_start_curv'] + 0*distances['from_end_curv']) / avg_curv + \
-                                 w_end * (0.5*distances['start_dist'] + 0.5*distances['end_dist']) / avg_end
-    return distances['combined_dist'].idxmin()
-
-
-def _compute_curvature(xy, eps=1e-6):
+def build_d_boundary_spline(boundary_line_wgs84, tck, unew, cum_dist, 
+                            x_offset, y_offset):
     """
-    xy: array (N,2)
-    returns curvature (N,)
+    Project a bike lane boundary polyline onto a road centerline spline,
+    producing a 1D spline d_boundary(s) and deriving side from the
+    sign of the projected d values.
+
+    Parameters
+    ----------
+    boundary_line_wgs84 : Shapely LineString in WGS84
+    tck, unew, cum_dist : centerline spline in EPSG:2056
+    x_offset, y_offset  : XY:2056 offsets
+
+    Returns
+    -------
+    d_boundary_spline : scipy interp1d — d_boundary(s)
+    s_domain          : (s_min, s_max) in spline-native arc-length [m]
+    side              : int (+1 or -1) — which side of centerline the
+                        bike lane is on, derived from sign of d_boundary
     """
-    dx = np.gradient(xy[:, 0])
-    dy = np.gradient(xy[:, 1])
-    ddx = np.gradient(dx)
-    ddy = np.gradient(dy)
-    num = dx * ddy - dy * ddx
-    den = (dx*dx + dy*dy)**1.5 + eps
-    return num / den
+    transformer_to_2056 = Transformer.from_crs(
+        "EPSG:4326", "EPSG:2056", always_xy=True
+    )
 
+    # Convert boundary vertices to EPSG:2056
+    coords_2056 = [
+        transformer_to_2056.transform(c[0], c[1])
+        for c in boundary_line_wgs84.coords
+    ]
 
-_vec_compute_curvature = np.vectorize(_compute_curvature, signature='(n,2)->(n)')
-
-
-def _curvature_error(curv_traj, curv_cl_segments):
-    """
-    curv_traj: shape (M,)
-    curv_cl_segments: shape (K, M)
-    """
-    # normalize magnitudes to discard amplitude drift
-    ct = curv_traj / (np.max(np.abs(curv_traj)) + 1e-6)
-    cl = curv_cl_segments / (np.max(np.abs(curv_cl_segments), axis=1, keepdims=True) + 1e-6)
-
-    diff = cl - ct[None, :]
-    return np.sqrt(np.mean(diff**2, axis=1))  # (K,)
-
-
-def match_bicycle_to_centerline_with_curvature(bike_df, centerlines_spl_dict, w_dist=1.0, w_curv=0.5):
-    N = len(bike_df)
-    traj_xy = bike_df[['x_act_ekf', 'y_act_ekf']].to_numpy()
-    # compute trajectory curvature
-    curv_traj = _compute_curvature(traj_xy)
-    
-    M = max(100, 2*N)
-    u = np.linspace(0, 1, M)
-    distances = {}
-    for key, cl_spl in centerlines_spl_dict.items():
-        x_spline, y_spline = splev(u, cl_spl[0])
-        cl = np.column_stack([x_spline, y_spline])
-        
-        # Stride trick
-        shape = (M - N + 1, N, 2)
-        strides = (cl.strides[0], cl.strides[0], cl.strides[1])
-        segments = np.lib.stride_tricks.as_strided(cl, shape=shape, strides=strides)
-        
-        # ---- Distance error ----
-        dists = np.linalg.norm(segments - traj_xy[None, :, :], axis=2)
-        dist_err = np.sqrt(np.mean(dists**2, axis=1))  # (M-N+1,)
-        
-        # ---- Curvature error ----
-        curv_cl = _vec_compute_curvature(segments)
-        curv_err = _curvature_error(curv_traj, curv_cl)
-        
-        # ---- Combined score ----
-        score = w_dist * dist_err + w_curv * curv_err
-        
-        min_idx = np.argmin(score)
-        
-        distances[key] = {'dist_err': dist_err[min_idx], 'curv_err': curv_err[min_idx]} # Best match for this centerline
-    
-    distances = pd.DataFrame(distances).T
-    
-    avg_dist = distances['dist_err'].median()
-    avg_curv = distances['curv_err'].median()
-    distances['combined_err'] = w_dist * distances['dist_err'] / avg_dist + \
-                                w_curv * distances['curv_err'] / avg_curv
-    return distances['combined_err'].idxmin()
-
-
-def match_bicycle_to_centerline_with_heading(bike_df, centerlines_spl_dict,
-                                 w_dist=1.0, w_curv=0.3, w_end=0.2, w_heading=0.5):
-    N = len(bike_df)
-    bike_xy = bike_df[['x_act_ekf', 'y_act_ekf']].to_numpy()
-    bike_cum_dist, bike_total_dist = _compute_distance_traveled(bike_xy)
-    curv_traj = _compute_curvature(bike_xy)
-    bike_heading = np.array(bike_df['angle_ekf'].to_numpy(), dtype=float)  # (N,) in radians
-
-    records = {}
-    for key, cl_spl in centerlines_spl_dict.items():
-        x_start, y_start = splev(0, cl_spl[0])
-        x_end,   y_end   = splev(1, cl_spl[0])
-        start_pt = np.array([x_start, y_start])
-        end_pt   = np.array([x_end,   y_end])
-
-        _, spl_total_dist = _compute_distance_traveled(
-            np.column_stack(splev(np.linspace(0, 1, N), cl_spl[0]))
+    # Project each vertex onto centerline → (s_i, d_i)
+    s_vals = []
+    d_vals = []
+    for x_b, y_b in coords_2056:
+        _, _, _, s_i, d_i = convert_xy2056_to_roadway_coordinates(
+            np.array([x_b, y_b]), tck, unew, cum_dist, x_offset, y_offset
         )
+        s_vals.append(s_i)
+        d_vals.append(d_i)
 
-        def _eval_alignment(t0, forward=True):
-            if forward:
-                all_t = np.clip(t0 + bike_cum_dist / spl_total_dist, 0, 1)
-            else:
-                all_t = np.clip(t0 - bike_cum_dist / spl_total_dist, 0, 1)
-            cx, cy = splev(all_t, cl_spl[0])
-            cl_xy = np.column_stack((cx, cy))
-            dist = np.mean(np.linalg.norm(bike_xy - cl_xy, axis=1))
-            curv_err = np.sqrt(np.mean((curv_traj - _compute_curvature(cl_xy))**2))
-            return dist, curv_err, all_t
+    s_vals = np.array(s_vals)
+    d_vals = np.array(d_vals)
 
-        def _heading_error(all_t, forward=True):
-            # Centerline tangent heading at each t via spline derivative
-            dx_cl, dy_cl = splev(all_t, cl_spl[0], der=1)
-            cl_headings = np.arctan2(dy_cl, dx_cl)  # radians, (N,)
+    # Derive side from sign of projected d values — consistent with
+    # how convert_xy2056_to_roadway_coordinates defines lateral offset
+    side = int(np.sign(np.mean(np.sign(d_vals))))
+    if side == 0:
+        side = 1   # fallback if d_vals are exactly zero (shouldn't happen)
 
-            # If backward, flip centerline direction by 180°
-            if not forward:
-                cl_headings = cl_headings + np.pi
+    # Sort by s
+    sort_idx = np.argsort(s_vals)
+    s_vals   = s_vals[sort_idx]
+    d_vals   = d_vals[sort_idx]
 
-            # Angular difference at each point, wrapped to [0, 180°]
-            ang_diff = np.abs((bike_heading - cl_headings + np.pi) % (2 * np.pi) - np.pi)
+    # Remove duplicate s values
+    _, unique_idx = np.unique(s_vals, return_index=True)
+    s_vals = s_vals[unique_idx]
+    d_vals = d_vals[unique_idx]
 
-            # Filter out stationary points where heading is unreliable
-            valid = np.isfinite(bike_heading) & np.isfinite(cl_headings)
-            if valid.sum() == 0:
-                return np.pi  # worst case
+    # Fit 1D interpolant
+    d_boundary_spline = interp1d(
+        s_vals, d_vals,
+        kind='linear',
+        bounds_error=False,
+        fill_value=(d_vals[0], d_vals[-1])
+    )
 
-            return float(np.sqrt(np.mean(ang_diff[valid] ** 2)))  # RMSE in radians
-
-        # From start
-        t_start = float(np.clip(np.linalg.norm(bike_xy[0] - start_pt) / spl_total_dist, 0, 1))
-        d_fwd, c_fwd, all_t_fwd = _eval_alignment(t_start, forward=True)
-        h_fwd = _heading_error(all_t_fwd, forward=True)
-
-        # From end
-        cl_vec = end_pt - start_pt
-        t_end = float(np.clip(
-            np.dot(bike_xy[-1] - start_pt, cl_vec) / (np.dot(cl_vec, cl_vec) + 1e-9), 0, 1
-        ))
-        d_bwd, c_bwd, all_t_bwd = _eval_alignment(t_end, forward=False)
-        h_bwd = _heading_error(all_t_bwd, forward=False)
-
-        # Pick best direction
-        if d_fwd <= d_bwd:
-            best_dist, best_curv, heading_err = d_fwd, c_fwd, h_fwd
-        else:
-            best_dist, best_curv, heading_err = d_bwd, c_bwd, h_bwd
-
-        records[key] = {
-            'best_dist':   best_dist,
-            'best_curv':   best_curv,
-            'end_dist':    0.5 * np.linalg.norm(bike_xy[0] - start_pt) +
-                           0.5 * np.linalg.norm(bike_xy[-1] - end_pt),
-            'heading_err': heading_err,
-        }
-
-    df_scores = pd.DataFrame(records).T
-    norm = lambda col: col / (col.mean() + 1e-6)
-    df_scores['score'] = (w_dist    * norm(df_scores['best_dist']) +
-                          w_curv    * norm(df_scores['best_curv']) +
-                          w_end     * norm(df_scores['end_dist'])  +
-                          w_heading * norm(df_scores['heading_err']))
-
-    return df_scores['score'].idxmin()
-
+    s_domain = (float(s_vals[0]), float(s_vals[-1]))
+    return d_boundary_spline, s_domain, side
 

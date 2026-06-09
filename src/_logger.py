@@ -14,14 +14,53 @@ Submitted to:   JOURNAL
 import os
 import sys
 import logging
+import unicodedata
 
+from tqdm import tqdm
 
 # #############################################################################
 # Class: Logger
 # #############################################################################
+# ---------------------------
+# Helper: sanitize to ASCII
+# ---------------------------
+def to_ascii_safe(text: str) -> str:
+    """
+    Convert Unicode text to ASCII-safe version for console output.
+    """
+    replacements = {
+        "²": "^2",
+        "³": "^3",
+        "ω": "omega",
+        "θ": "theta",
+        "Δ": "Delta",
+        "─": "-",
+    }
+    for k, v in replacements.items():
+        text = text.replace(k, v)
+
+    # fallback: strip remaining unicode
+    return unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
+
+
+# ---------------------------
+# TQDM-safe console handler
+# ---------------------------
+class TqdmConsoleHandler(logging.StreamHandler):
+    def emit(self, record):
+        try:
+            msg = self.format(record)
+            msg = to_ascii_safe(msg)  # sanitize
+            tqdm.write(msg)
+        except Exception:
+            self.handleError(record)
+            
+# ---------------------------
+# Main Logger
+# ---------------------------
 class Logger:
     def __init__(self, date, intersection, code, timeslot, session, log_dir="../logs", 
-                 console_level=logging.INFO, file_level=logging.DEBUG):
+                 console_level=logging.WARNING, file_level=logging.DEBUG):
         """
         Args:
             date:            e.g. '2025-06-16'
@@ -47,16 +86,23 @@ class Logger:
             datefmt="%Y-%m-%d %H:%M:%S"
         )
 
-        fh = logging.FileHandler(self.log_path, mode='w')
+        # ---------------------------
+        # File handler (UTF-8, full fidelity)
+        # ---------------------------
+        fh = logging.FileHandler(self.log_path, mode='w', encoding='utf-8')
         fh.setLevel(file_level)
         fh.setFormatter(formatter)
 
-        ch = logging.StreamHandler(sys.stdout)
-        ch.setLevel(console_level)
-        ch.setFormatter(formatter)
+        # ---------------------------
+        # Console handler (ASCII safe + tqdm-safe)
+        # ---------------------------
+        if console_level is not None:
+            ch = TqdmConsoleHandler()
+            ch.setLevel(console_level)
+            ch.setFormatter(formatter)
+            self._logger.addHandler(ch)
 
         self._logger.addHandler(fh)
-        self._logger.addHandler(ch)
 
         self.info(f"Log file: {self.log_path}")
 
