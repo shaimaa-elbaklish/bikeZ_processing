@@ -18,6 +18,8 @@ import pickle
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib.collections import LineCollection
+from matplotlib.colors import Normalize
 
 from _constants import BikeZ_Config
 
@@ -41,7 +43,7 @@ Y_2056_offset = XY_2056_Bounds[1][0]
 
 # Load the lane coordinate CSV (output of main_coordinate_transform.py)
 filename = f"trajectories_bikes_{date}_{intersection}_{timeslot}_{code}-1-ekf-lane.csv"
-mod_df   = pd.read_csv(data_root + f"{date}/{intersection}/{filename}")
+df       = pd.read_csv(data_root + f"{date}/{intersection}/{filename}")
 
 # Load the registry (needed for plotting only)
 registry_path  = f"../data/registry_{date}_{intersection}_{code}.pkl"
@@ -53,255 +55,137 @@ XY_2056_Bounds = BikeZ_Config.XY_2056_Bounds[date][(intersection, code)]
 
 
 # #############################################################################
-# 1. BASIC OVERVIEW
+# MAIN
 # #############################################################################
 
-# How many vehicles, how many matched?
-total_vehs   = mod_df['veh_id'].nunique()
-matched_vehs = mod_df[mod_df['segment_id'].notna()]['veh_id'].nunique()
-print(f"Vehicles total:   {total_vehs}")
-print(f"Vehicles matched: {matched_vehs}  ({100*matched_vehs/total_vehs:.1f}%)")
+# ── Basic filtering ───────────────────────────────────────────────────────────
+# Keep only well-matched rows
+df_good = df[df['match_quality'].isin(['good', 'poor'])]
 
-# Match rate per movement
-match_rate = (
-    mod_df.groupby('movement_key')['veh_id']
-    .nunique()
-    .sort_values(ascending=False)
+# Keep only a specific movement
+df_mov = df_good[df_good['movement_key'] == 'LangstrN_SB_2_LangstrS_SB']
+
+# Exclude reverse traversals
+df_mov = df_mov[~df_mov['is_reverse']]
+
+# ── Per-vehicle chain reconstruction ─────────────────────────────────────────
+# Each vehicle may span multiple segments; group by veh_id and segment_role
+fig, axs = plt.subplots(1, 3, figsize=(12, 4))
+for veh_id, grp in df_mov.groupby('veh_id'):
+    approach = grp[grp['segment_role'] == 'approach']
+    turn     = grp[grp['segment_role'] == 'turn']
+    departure= grp[grp['segment_role'] == 'departure']
+
+    # s is continuous across the chain — plot full trajectory in lane coords
+    axs[0].plot(approach['s_native'], approach['d_native'], alpha=0.3, color='steelblue')
+    axs[1].plot(turn['s_native'], turn['d_native'], alpha=0.3, color='steelblue')
+    axs[2].plot(departure['s_native'], departure['d_native'], alpha=0.3, color='steelblue')
+
+axs[0].set(xlabel='s [m]', ylabel='d [m]', title='Approach')
+axs[1].set(xlabel='s [m]', ylabel='d [m]', title='Turn')
+axs[2].set(xlabel='s [m]', ylabel='d [m]', title='Departure')
+fig.suptitle('Movement=LangstrN_SB → LangstrS_SB')
+fig.tight_layout()
+
+# ── Bike lane usage ───────────────────────────────────────────────────────────
+# in_bike_lane: 1.0 = in bike lane, 0.0 = outside, NaN = no bike lane defined
+df_bike = df_good[df_good['in_bike_lane'].notna()]
+bike_lane_usage = (
+    df_bike.groupby('movement_key')['in_bike_lane']
+    .mean()
+    .rename('fraction_in_bike_lane')
 )
-print("\nVehicles per movement:")
-print(match_rate.to_string())
+print(bike_lane_usage)
 
-# How many rows are unmatched?
-unmatched_frac = mod_df['segment_id'].isna().mean()
-print(f"\nUnmatched rows: {100*unmatched_frac:.1f}%")
+# ── Coordinate inversion: recover (x, y) from (s_native, d_native) ───────────
+# The (s_native, d_native, segment_id) triple is invertible.
+# Use the spline directly: evaluate position at s_native, then offset by d_native
+# along the normal.
+from scipy.interpolate import splev
 
+def invert_lane_coordinates(row, segment_registry, geometry_store):
+    seg_key = row['segment_id']
+    if pd.isna(seg_key) or seg_key not in segment_registry:
+        return pd.Series({'x_reconstructed': np.nan, 'y_reconstructed': np.nan})
 
-# #############################################################################
-# 2. FILTER TO MATCHED ROWS ONLY
-# #############################################################################
-df_matched = mod_df[mod_df['segment_id'].notna()].copy()
+    geom_key            = segment_registry[seg_key]['geometry_key']
+    tck, unew, cum_dist = geometry_store[geom_key]['spline']
 
-# Convenience: separate approach / turn / departure
-df_approach   = df_matched[df_matched['segment_role'] == 'approach']
-df_turn       = df_matched[df_matched['segment_role'] == 'turn']
-df_departure  = df_matched[df_matched['segment_role'] == 'departure']
+    s_nat = row['s_native']
+    d_nat = row['d_native']
 
+    # Interpolate parameter t from arc-length s_native
+    t = float(np.interp(s_nat, cum_dist, unew))
 
-# #############################################################################
-# 3. SPEED ANALYSIS
-# #############################################################################
+    # Spline position and tangent at t
+    x,  y  = splev(t, tck, der=0)
+    dx, dy = splev(t, tck, der=1)
 
-# Mean longitudinal speed per movement role
-speed_by_role = (
-    df_matched
-    .groupby('segment_role')[['s_dot', 'd_dot', 'speed_ekf']]
-    .agg(['mean', 'std'])
-    .round(3)
-)
-print("\nSpeed by role:")
-print(speed_by_role.to_string())
+    # Unit normal (left of spline = positive d_native)
+    tang = np.sqrt(dx**2 + dy**2)
+    if tang < 1e-12:
+        tang = 1.0
+    nx = -dy / tang
+    ny =  dx / tang
 
-# Speed profile along s for approach segments
-fig, axes = plt.subplots(1, 2, figsize=(12, 4))
-
-for seg_key in df_approach['segment_id'].unique():
-    seg_df = df_approach[df_approach['segment_id'] == seg_key]
-    # Bin by s and take median s_dot per bin
-    seg_df = seg_df.copy()
-    seg_df['s_bin'] = pd.cut(seg_df['s'], bins=20)
-    profile = seg_df.groupby('s_bin', observed=True)['s_dot'].median()
-    s_mid   = [interval.mid for interval in profile.index]
-    axes[0].plot(s_mid, profile.values, label=seg_key, alpha=0.8)
-
-axes[0].axhline(0, color='gray', linewidth=0.5)
-axes[0].set_xlabel('s [m]')
-axes[0].set_ylabel('median s_dot [m/s]')
-axes[0].set_title('Longitudinal speed profile — approach segments')
-axes[0].legend(fontsize=7)
-axes[0].grid(True, alpha=0.3)
-
-# Lateral speed distribution per role
-for role, grp in df_matched.groupby('segment_role'):
-    d_dot_clean = grp['d_dot'].dropna()
-    axes[1].hist(d_dot_clean, bins=40, alpha=0.5, label=role, density=True)
-
-axes[1].set_xlabel('d_dot [m/s]')
-axes[1].set_ylabel('density')
-axes[1].set_title('Lateral speed distribution by role')
-axes[1].legend(fontsize=8)
-axes[1].grid(True, alpha=0.3)
-
-plt.tight_layout()
-# plt.savefig('../debugging/speed_profiles.png', dpi=150)
-plt.show()
-
-
-# #############################################################################
-# 4. LATERAL POSITION ANALYSIS
-# #############################################################################
-
-# d distribution per segment — shows lane keeping behaviour
-fig, ax = plt.subplots(figsize=(10, 4))
-
-for seg_key in sorted(df_matched['segment_id'].unique()):
-    d_vals = df_matched[df_matched['segment_id'] == seg_key]['d'].dropna()
-    ax.hist(d_vals, bins=40, alpha=0.4, label=seg_key, density=True)
-
-ax.axvline(0, color='black', linewidth=1, linestyle='--', label='centerline')
-ax.set_xlabel('d [m]  (+ = left of travel direction)')
-ax.set_ylabel('density')
-ax.set_title('Lateral offset distribution per segment')
-ax.legend(fontsize=6, ncol=2)
-ax.grid(True, alpha=0.3)
-plt.tight_layout()
-# plt.savefig('../debugging/lateral_offset_dist.png', dpi=150)
-plt.show()
-
-
-# #############################################################################
-# 5. BIKE LANE USAGE
-# #############################################################################
-
-# Only rows where in_bike_lane is not NaN (i.e. bike lane geometry exists)
-df_bl = df_matched[df_matched['in_bike_lane'].notna()].copy()
-
-if len(df_bl) > 0:
-    bl_usage = (
-        df_bl.groupby('segment_id')['in_bike_lane']
-        .agg(
-            n_rows='count',
-            pct_in_lane=lambda x: 100 * x.mean()
-        )
-        .round(1)
-    )
-    print("\nBike lane usage per segment:")
-    print(bl_usage.to_string())
-
-    # Per-vehicle bike lane usage rate
-    veh_bl = (
-        df_bl.groupby('veh_id')['in_bike_lane']
-        .mean()
-        .mul(100)
-        .rename('pct_in_bike_lane')
-    )
-
-    fig, ax = plt.subplots(figsize=(8, 4))
-    ax.hist(veh_bl, bins=20, edgecolor='white')
-    ax.set_xlabel('% of time in bike lane')
-    ax.set_ylabel('# vehicles')
-    ax.set_title('Per-vehicle bike lane usage rate')
-    ax.grid(True, alpha=0.3)
-    plt.tight_layout()
-    # plt.savefig('../debugging/bike_lane_usage.png', dpi=150)
-    plt.show()
-else:
-    print("\nNo bike lane geometry available for this intersection.")
-
-
-# #############################################################################
-# 6. U-TURN / REVERSING DETECTION
-# #############################################################################
-
-# s_decreasing flags backward motion
-df_reversing = df_matched[df_matched['s_decreasing'] == True]
-
-reversing_vehs = df_reversing['veh_id'].nunique()
-print(f"\nVehicles with s_decreasing events: {reversing_vehs}")
-
-# Which movements see most reversing?
-if len(df_reversing) > 0:
-    reversing_by_mov = (
-        df_reversing.groupby('movement_key')
-        .size()
-        .sort_values(ascending=False)
-        .head(5)
-    )
-    print("Top movements with reversing frames:")
-    print(reversing_by_mov.to_string())
-
-
-# #############################################################################
-# 7. TRAJECTORY-LEVEL SUMMARY TABLE
-# #############################################################################
-
-def summarise_vehicle(grp):
-    """Per-vehicle summary statistics."""
-    matched = grp[grp['segment_id'].notna()]
     return pd.Series({
-        'movement_key':      grp['movement_key'].dropna().iloc[0]
-                             if grp['movement_key'].notna().any() else None,
-        'n_frames':          len(grp),
-        'n_matched':         len(matched),
-        'match_rate':        len(matched) / len(grp),
-        'mean_speed':        grp['speed_ekf'].mean(),
-        'mean_s_dot':        matched['s_dot'].mean(),
-        'mean_d':            matched['d'].mean(),
-        'std_d':             matched['d'].std(),
-        'pct_in_bike_lane':  matched['in_bike_lane'].mean()
-                             if matched['in_bike_lane'].notna().any() else np.nan,
-        'any_reversing':     (matched['s_decreasing'] == True).any(),
+        'x_reconstructed': float(x) + d_nat * nx,
+        'y_reconstructed': float(y) + d_nat * ny,
     })
 
-summary_df = (
-    mod_df
-    .groupby('veh_id')
-    .apply(summarise_vehicle)
-    .reset_index()
+reconstructed = df_good.apply(
+    invert_lane_coordinates, axis=1,
+    segment_registry=segment_registry,
+    geometry_store=geometry_store,
 )
+df_good[['x_reconstructed', 'y_reconstructed']] = reconstructed
 
-print("\nPer-vehicle summary (first 10):")
-print(summary_df.head(10).to_string(index=False))
-
-# # Save for downstream use
-# summary_df.to_csv(
-#     data_root + f"{date}/{intersection}/"
-#     f"summary_bikes_{date}_{intersection}_{timeslot}_{code}.csv",
-#     index=False
-# )
-# print("\nSummary saved.")
-
-
-# #############################################################################
-# 8. DEBUG PLOT FOR A SINGLE VEHICLE
-# #############################################################################
-from tools_plotting import plot_lane_coord_debug, build_lane_color_map
-
-lane_color_map = build_lane_color_map(geometry_store)
-
-bike_id = 24 # summary_df.sort_values('match_rate', ascending=False).iloc[0]['veh_id']
-bike_df = mod_df[mod_df['veh_id'] == bike_id].copy()
-
-print(f"\nDebug plot for veh_id={bike_id}  "
-      f"(movement: {bike_df['movement_key'].dropna().iloc[0]})")
-
-plot_lane_coord_debug(
-    bike_df,
-    segment_registry, geometry_store,
-    XY_2056_Bounds, bike_id,
-    lane_color_map=lane_color_map,
-    save_path=None
+# Reconstruction error (should be < 0.1m for well-matched rows)
+df_good['reconstruction_error'] = np.sqrt(
+    (df_good['x_reconstructed'] - df_good['x_ekf'])**2 +
+    (df_good['y_reconstructed'] - df_good['y_ekf'])**2
 )
+print(df_good['reconstruction_error'].describe())
 
+# ── Longitudinal Position on Segment ─────────────────────────────────────
+fig, axs = plt.subplots(2, 2, figsize=(8, 8))
 
-# #############################################################################
-# 9. BATCH DEBUG PLOTS
-# #############################################################################
+subplots_def = [
+    ('LangstrN_SB', axs[0, 0]),
+    ('LangstrS_NB', axs[1, 1]),
+    ('Zollstr_WB', axs[0, 1]),
+    ('Roentgenstr_EB', axs[1, 0])
+]
+for seg_key, ax in subplots_def:
+    seg_df = df[df['segment_id'] == seg_key].copy()
+    geom_key = segment_registry[seg_key]['geometry_key']
+    s_stop = geometry_store[geom_key]['s_stop']
+    s_yield = geometry_store[geom_key]['s_yield']
+    s_change = geometry_store[geom_key]['s_change']
+    ax.axhline(y=s_stop, label='Stop Line', color='black', linestyle='solid')
+    ax.axhline(y=s_yield, label='Yield Line', color='black', linestyle='dotted')
+    ax.axhline(y=s_change, label='s_change', color='black', linestyle='dashed')
+    ax.legend()
+    norm = Normalize(vmin=0, vmax=seg_df['speed_ekf'].max())
+    for veh_id, veh_df in seg_df.groupby('veh_id'):
+        veh_df = veh_df.sort_values('time')
+        x = veh_df['time'].to_numpy()
+        y = veh_df['s_native'].to_numpy()
+        c = veh_df['speed_ekf'].to_numpy()
+        # Create line segments
+        points = np.array([x, y]).T.reshape(-1, 1, 2)
+        segments = np.concatenate([points[:-1], points[1:]], axis=1)
+        lc = LineCollection(
+            segments, cmap='jet_r', norm=norm
+        )
+        # Color each segment by the average speed of its endpoints
+        lc.set_array((c[:-1] + c[1:]) / 2)
+        lc.set_linewidth(1.5)
+        ax.add_collection(lc)
+    ax.autoscale()
+    cbar = plt.colorbar(lc, ax=ax)
+    cbar.set_label('speed_ekf (km/h)')
+    ax.set_title(seg_key)
+    ax.set(xlabel='Time (s)', ylabel='s_native (m)')
 
-# Uncomment to generate a plot for every matched vehicle
-# save_dir = f"../debugging/{date}-{intersection}/"
-# import os; os.makedirs(save_dir, exist_ok=True)
-# plt.ioff()
-#
-# for bike_id in tqdm(mod_df['veh_id'].unique()):
-#     bike_df = mod_df[mod_df['veh_id'] == bike_id].copy()
-#     plot_lane_coord_debug(
-#         bike_df,
-#         segment_registry, geometry_store,
-#         XY_2056_Bounds, bike_id,
-#         lane_color_map=lane_color_map,
-#         save_path=os.path.join(
-#             save_dir,
-#             f"{timeslot}_{code}_lane_{bike_id}.png"
-#         )
-#     )
-#     plt.close('all')
+fig.tight_layout()
