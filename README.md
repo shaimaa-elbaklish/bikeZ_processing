@@ -272,10 +272,10 @@ History points fade to low opacity so the current frame remains visually dominan
 **Usage**
 
 ```bash
-python generate_timestamped_map.py %DATE% %INTERSECTION% %CODE% %TIMESLOT%
+python generate_timestamped_map.py %DATE% %INTERSECTION% %CODE% %TIMESLOT% %SUBSAMPLED_FLAG%
 
 # Example
-python generate_timestamped_map.py 2025-06-16 D3 E AM1
+python generate_timestamped_map.py 2025-06-16 D3 E AM1 True
 ```
 
 Output is saved to `../maps/timestamped_trajectories_ALL_map_<date>_<intersection>_<timeslot>_<code>.html`.

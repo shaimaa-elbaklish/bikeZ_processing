@@ -37,14 +37,18 @@ parser.add_argument("date",          type=str, help="Date string, e.g. 2025-06-1
 parser.add_argument("intersection",  type=str, help="Intersection ID, e.g. D3")
 parser.add_argument("code",          type=str, help="Code letter, e.g. E")
 parser.add_argument("timeslot",      type=str, help="Timeslot, e.g. AM1")
+parser.add_argument("is_subsampled", type=str, help="Which files to use: True or False")
 args = parser.parse_args()
 
 date         = args.date
 intersection = args.intersection
 code         = args.code
 timeslot     = args.timeslot
+SUBSAMPLED   = args.is_subsampled.lower() == "true"
 
 campaign  = f"Zurich_2025{date[5:7]}"
+subsampled_data_root = "C:/Users/ShaimaaElBaklish/OneDrive - ETH Zurich/BikeZ-Subsampled/"
+loc_num = BikeZ_Config.location_map[(date[5:7], intersection, code)]
 
 XY_2056_Bounds = BikeZ_Config.XY_2056_Bounds[date][(intersection, code)]
 X_2056_offset = XY_2056_Bounds[0][0]
@@ -53,27 +57,39 @@ Y_2056_offset = XY_2056_Bounds[1][0]
 # #############################################################################
 # MAIN: Load Data (Bikes + Vehicles)
 # #############################################################################
-mode = BikeZ_Config.avail_modes[0] # Bike
-data_root = BikeZ_Config.data_root[campaign][mode]
-filename = f"trajectories_bikes_{date}_{intersection}_{timeslot}_{code}-1-ekf.csv"
-df_bik = pd.read_csv(data_root + f"{date}/{intersection}/{filename}")
-df_bik = df_bik.dropna()
-df_bik['datetime'] = pd.to_datetime(df_bik['datetime'], format='ISO8601')
-df_bik['x_act_ekf'] = df_bik['x_ekf'] + X_2056_offset
-df_bik['y_act_ekf'] = df_bik['y_ekf'] + Y_2056_offset
-transformer = Transformer.from_crs("EPSG:2056", "EPSG:4326", always_xy=True)
-df_bik["lon_ekf"], df_bik["lat_ekf"] = transformer.transform(df_bik["x_act_ekf"].values, df_bik["y_act_ekf"].values)
-center_lat, center_lon = df_bik["lat_ekf"].mean(), df_bik["lon_ekf"].mean()
-
-mode = BikeZ_Config.avail_modes[1] # Vehicle
-data_root = BikeZ_Config.data_root[campaign][mode]
-filename = f"trajectories_vehicles_{date}_{intersection}_{timeslot}_{code}-1-ekf.csv"
-df_veh = pd.read_csv(data_root + f"{date}/{intersection}/{filename}")
-df_veh = df_veh.dropna()
-df_veh['datetime'] = pd.to_datetime(df_veh['datetime'], format='ISO8601')
-df_veh['x_act_ekf'] = df_veh['x_ekf'] + X_2056_offset
-df_veh['y_act_ekf'] = df_veh['y_ekf'] + Y_2056_offset
-df_veh["lon_ekf"], df_veh["lat_ekf"] = transformer.transform(df_veh["x_act_ekf"].values, df_veh["y_act_ekf"].values)
+if SUBSAMPLED:
+    mode = BikeZ_Config.avail_modes[0] # Bike
+    filename = f"location_{loc_num}/{loc_num}_{mode}s_{date}_{timeslot}.csv"
+    df_bik = pd.read_csv(subsampled_data_root + filename)
+    df_bik['datetime'] = pd.to_datetime(df_bik['datetime'], format='ISO8601')
+    center_lat, center_lon = df_bik["lat_ekf"].mean(), df_bik["lon_ekf"].mean()
+    
+    mode = BikeZ_Config.avail_modes[1] # Vehicle
+    filename = f"location_{loc_num}/{loc_num}_{mode}s_{date}_{timeslot}.csv"
+    df_veh = pd.read_csv(subsampled_data_root + filename)
+    df_veh['datetime'] = pd.to_datetime(df_veh['datetime'], format='ISO8601')
+else:
+    mode = BikeZ_Config.avail_modes[0] # Bike
+    data_root = BikeZ_Config.data_root[campaign][mode]
+    filename = f"trajectories_bikes_{date}_{intersection}_{timeslot}_{code}-1-ekf.csv"
+    df_bik = pd.read_csv(data_root + f"{date}/{intersection}/{filename}")
+    df_bik = df_bik.dropna()
+    df_bik['datetime'] = pd.to_datetime(df_bik['datetime'], format='ISO8601')
+    df_bik['x_act_ekf'] = df_bik['x_ekf'] + X_2056_offset
+    df_bik['y_act_ekf'] = df_bik['y_ekf'] + Y_2056_offset
+    transformer = Transformer.from_crs("EPSG:2056", "EPSG:4326", always_xy=True)
+    df_bik["lon_ekf"], df_bik["lat_ekf"] = transformer.transform(df_bik["x_act_ekf"].values, df_bik["y_act_ekf"].values)
+    center_lat, center_lon = df_bik["lat_ekf"].mean(), df_bik["lon_ekf"].mean()
+    
+    mode = BikeZ_Config.avail_modes[1] # Vehicle
+    data_root = BikeZ_Config.data_root[campaign][mode]
+    filename = f"trajectories_vehicles_{date}_{intersection}_{timeslot}_{code}-1-ekf.csv"
+    df_veh = pd.read_csv(data_root + f"{date}/{intersection}/{filename}")
+    df_veh = df_veh.dropna()
+    df_veh['datetime'] = pd.to_datetime(df_veh['datetime'], format='ISO8601')
+    df_veh['x_act_ekf'] = df_veh['x_ekf'] + X_2056_offset
+    df_veh['y_act_ekf'] = df_veh['y_ekf'] + Y_2056_offset
+    df_veh["lon_ekf"], df_veh["lat_ekf"] = transformer.transform(df_veh["x_act_ekf"].values, df_veh["y_act_ekf"].values)
 
 
 # #############################################################################
