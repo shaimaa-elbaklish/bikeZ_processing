@@ -177,6 +177,7 @@ The following output columns are added.
 | `d_ddot` | float | lateral acceleration [m/s<sup>2</sup>] |
 | `in_bike_lane` | uint8 | 1 / 0 / NaN |
 | `d_to_bike_boundary` | float | distance from bike lane inner boundary [m] |
+
 Note: `(s_native, d_native, segment_id)` is the **invertible** triple $\rightarrow$ recovers `(x, y)`.
 
 ### Overview
@@ -276,6 +277,11 @@ python generate_timestamped_map.py %DATE% %INTERSECTION% %CODE% %TIMESLOT% %SUBS
 
 # Example
 python generate_timestamped_map.py 2025-06-16 D3 E AM1 True
+```
+
+If `%SUBSAMPLED_FLAG%` is `True`, the subsampled data root directory needs to be updated accordingly in `generate_timestamped_map.py`.
+```python
+subsampled_data_root = "/usr/path/to/BikeZ-Subsampled/"    # <-- CHANGE HERE -->
 ```
 
 Output is saved to `../maps/timestamped_trajectories_ALL_map_<date>_<intersection>_<timeslot>_<code>.html`.
