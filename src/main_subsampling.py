@@ -11,6 +11,7 @@ Submitted to:   JOURNAL
 # #############################################################################
 # IMPORTS
 # #############################################################################
+import gc
 import sys
 import argparse
 import warnings
@@ -65,12 +66,39 @@ log = Logger(date, intersection, code, timeslot, f"Subsample_{mode}")
 # trajectories after EKF
 if mode == "bike":
     filename = f"trajectories_bikes_{date}_{intersection}_{timeslot}_{code}-1-ekf.csv"
+    filename_other = f"trajectories_vehicles_{date}_{intersection}_{timeslot}_{code}-1-ekf.csv"
+    data_root_other = BikeZ_Config.data_root[campaign]['vehicle']
 else:
     filename = f"trajectories_vehicles_{date}_{intersection}_{timeslot}_{code}-1-ekf.csv"
+    filename_other = f"trajectories_bikes_{date}_{intersection}_{timeslot}_{code}-1-ekf.csv"
+    data_root_other = BikeZ_Config.data_root[campaign]['bike']
 df = pd.read_csv(data_root + f"{date}/{intersection}/{filename}")
 df['datetime'] = pd.to_datetime(df['datetime'], format='ISO8601')
+ref_datetime = df['datetime'].min()
+ref_time     = df.loc[
+    (df['datetime'] == ref_datetime) & (df['time'] >= 0),
+    'time'
+].unique()[0]
 
-df_10fps = subsample_all(df, target_fps=10.0, log=log)
+
+df_other = pd.read_csv(data_root_other + f"{date}/{intersection}/{filename_other}")
+df_other['datetime'] = pd.to_datetime(df_other['datetime'], format='ISO8601')
+ref_datetime_other   = df_other['datetime'].min()
+ref_time_other       = df_other.loc[
+    (df_other['datetime'] == ref_datetime_other) & (df_other['time'] >= 0),
+    'time'
+].unique()[0]
+del df_other
+gc.collect()
+
+
+datetime_anchor = max(ref_datetime, ref_datetime_other)   # pick one common phase reference
+df['time']      = df['datetime'].apply(lambda x: np.round((x - datetime_anchor).total_seconds(), decimals=3))
+df = df.sort_values(by=['veh_id', 'time'], ascending=True)
+
+
+df_10fps = subsample_all(df, target_fps=10.0, log=log, 
+                         include_heads=True, include_tails=True)
 df_10fps['x_act_ekf'] = df_10fps['x_ekf'] + X_2056_offset
 df_10fps['y_act_ekf'] = df_10fps['y_ekf'] + Y_2056_offset
 transformer = Transformer.from_crs("EPSG:2056", "EPSG:4326", always_xy=True)
@@ -82,7 +110,7 @@ df_10fps = df_10fps[[
     'x_act_ekf', 'y_act_ekf', 'x_ekf', 'y_ekf',
     'lon_ekf', 'lat_ekf', 
     'speed_ekf', 'a_ekf',
-    'angle_ekf', 'angular_vel_ekf',     
+    'angle_ekf', 'angular_vel_ekf', 'off_grid'
 ]]
 
 output_path = f"C:/Users/ShaimaaElBaklish/OneDrive - ETH Zurich/BikeZ-Subsampled/location_{loc_num}/{loc_num}_{mode}s_{date}_{timeslot}.csv"

@@ -126,6 +126,7 @@ The output is a csv file saved in the specified output path, with the naming con
 | `a_ekf` | Linearly interpolated EKF-smoothed acceleration (m/s<sup>2</sup>) |
 | `angle_ekf` | Linearly interpolated EKF-estimated heading angle (rad), wrapped to (-$\pi$, $\pi$] |
 | `angular_vel_ekf` | Linearly interpolated EKF-estimated angular velocity (rad/s) |
+| `off_grid` | True if this row is NOT an exact member of the shared master grid (i.e. a spliced-in head/tail from include_heads/include_tails, or the forced fallback point for an empty-window trajectory). |
 ---
 
 

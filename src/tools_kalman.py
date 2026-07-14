@@ -976,8 +976,38 @@ def _precompute_gap_geometries(feat_veh_df: pd.DataFrame,
         log.debug(f'[Phase 0] veh={veh_id} | gap idx={first_missing_idx}  t={times[i]:.3f}s  length={gap_length:.3f}s')
 
         # Skip short gaps — handled by EKF predict-only
+        # Still overwrite the poisoned 'a' sentinel (-1) with a linear
+        # interpolation between the last known-good 'a' before the gap
+        # and the first known-good 'a' after it — 'a' is a smooth input,
+        # not a raw measurement, so interpolation (not a constant) is the
+        # right prior across a short, unobserved stretch.
         if gap_length <= SKIP_KALMAN_FILTERING_MAX_GAP / fps:
-            i += 1
+            prev_row = (feat_veh_df[~feat_veh_df['missing'] &
+                                     (feat_veh_df['time'] <= times[i - 1])]
+                        .iloc[-1])
+            next_row = feat_veh_df.loc[next_avail_idx]
+
+            a_start = float(prev_row['a'])
+            a_end   = float(next_row['a'])
+
+            gap_row_mask = ((feat_veh_df['time'] >= times[first_missing_idx]) &
+                             (feat_veh_df['time'] <  next_avail_time))
+            gap_row_times = feat_veh_df.loc[gap_row_mask, 'time'].to_numpy()
+
+            # Linear interpolation in time between the two real boundary a's
+            frac  = (gap_row_times - prev_row['time']) / (next_row['time'] - prev_row['time'])
+            a_use = a_start + frac * (a_end - a_start)
+
+            feat_veh_df.loc[gap_row_mask, 'a'] = a_use
+
+            log.debug(
+                f'[Phase 0] veh={veh_id} | short gap idx={first_missing_idx} '
+                f'a_start={a_start:.3f} a_end={a_end:.3f} m/s²  '
+                f'(interpolated over {len(gap_row_times)} rows, dur={gap_length:.2f}s)'
+            )
+            
+            # i += 1
+            i = int(np.searchsorted(times, next_avail_time))
             continue
 
         # --- Raw boundary rows (always from observed rows) ---
@@ -1150,7 +1180,7 @@ def calculate_kalman_filtered_trajectory(veh_df: pd.DataFrame,
     states_cov_kalman[:, :, 0] = np.eye(4, dtype=np.float64)
     states_cov_pred            = np.copy(states_cov_kalman)
     inputs_all                 = np.zeros((2, N), dtype=np.float64)
-
+    
     for i in range(N - 1):
         dt = times[i + 1] - times[i]
 
@@ -1172,12 +1202,27 @@ def calculate_kalman_filtered_trajectory(veh_df: pd.DataFrame,
         y_t[-2]   /= 3.6
         y_t[2]     = max(0.0, y_t[2])
 
-        R_use = R_gap if _gap_mask_from_registry(gap_registry, i) else R_t
+        # R_use = R_gap if _gap_mask_from_registry(gap_registry, i) else R_t
         
-        states_kalman[:, i+1], states_cov_kalman[:, :, i+1] = _ekf_correct(
-            states_pred[:, i+1], states_cov_pred[:, :, i+1],
-            y_t, C_t, R_use
-        )
+        # states_kalman[:, i+1], states_cov_kalman[:, :, i+1] = _ekf_correct(
+        #     states_pred[:, i+1], states_cov_pred[:, :, i+1],
+        #     y_t, C_t, R_use
+        # )
+        
+        is_missing = feat_veh_df.loc[feat_veh_df['time'] == times[i], 'missing'].item()
+        if is_missing:
+            # Short gap, no clothoid pseudo-observation: no trustworthy
+            # measurement this step — predict-only, using a_use/omega=0
+            # computed above as the control input.
+            states_kalman[:, i+1]        = states_pred[:, i+1]
+            states_cov_kalman[:, :, i+1] = states_cov_pred[:, :, i+1]
+        else:
+            R_use = R_gap if _gap_mask_from_registry(gap_registry, i) else R_t
+            states_kalman[:, i+1], states_cov_kalman[:, :, i+1] = _ekf_correct(
+                states_pred[:, i+1], states_cov_pred[:, :, i+1], y_t, C_t, R_use
+            )
+        
+        
         # Clamp speed >= 0 after unconstrained linear correction
         states_kalman[2, i+1] = max(0.0, states_kalman[2, i+1])
         states_pred[2, i+1]   = max(0.0, states_pred[2, i+1])

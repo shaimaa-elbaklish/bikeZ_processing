@@ -80,8 +80,8 @@ save_path     = f'../data/registry_{date}_{intersection}_{code}.pkl'
 max_chain_len = 3
 
 
-# Share Link: https://s.geo.admin.ch/lksbfe7ftpta
-# Edit Link: https://s.geo.admin.ch/imc2lxfn3a5r
+# Share Link: https://s.geo.admin.ch/ijzem4yn8y7c
+# Edit Link: https://s.geo.admin.ch/8dguwea3mh0r
 
 
 # #############################################################################
@@ -242,10 +242,10 @@ print("--- Phase 2: build segment registry ---")
 SEG_DEFS = [
     # ── Baslerstrasse West ────────────────────────────────────────────────────
     {'seg_key': 'BaslerstrW_EB', 'geometry_key': 'BaslerstrW',
-     'direction': 'EB', 'mode': 'shared', 'bike_lane': None,
+     'direction': 'EB', 'mode': 'shared', 'bike_lane': {'w_bike': 3.0},
      'd_left': 1.5, 'd_right': 12.0},
     {'seg_key': 'BaslerstrW_WB', 'geometry_key': 'BaslerstrW',
-     'direction': 'WB', 'mode': 'shared', 'bike_lane': None,
+     'direction': 'WB', 'mode': 'shared', 'bike_lane': {'w_bike': 3.0},
      'd_left': 1.5, 'd_right': 12.0},
     
     # ── Baslerstrasse East ────────────────────────────────────────────────────

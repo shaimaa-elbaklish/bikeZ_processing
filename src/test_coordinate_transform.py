@@ -29,19 +29,18 @@ from _constants import BikeZ_Config
 BikeZ_Config = BikeZ_Config()
 
 # Specify Trajectory File
-date = BikeZ_Config.avail_dates[0]
+date = BikeZ_Config.avail_dates[-1]
 campaign = f"Zurich_2025{date[5:7]}" # June or September
 mode = BikeZ_Config.avail_modes[0] # 0: Bike, 1: Vehicle
 data_root = BikeZ_Config.data_root[campaign][mode]
 
-intersection, code = BikeZ_Config.avail_intersections[date][0]
-timeslot = BikeZ_Config.avail_timeslots[date][(intersection, code)][0] # 'AM1'
+intersection, code = BikeZ_Config.avail_intersections[date][-1]
+timeslot = BikeZ_Config.avail_timeslots[date][(intersection, code)][1] # 'AM1'
 
 XY_2056_Bounds = BikeZ_Config.XY_2056_Bounds[date][(intersection, code)]
 X_2056_offset = XY_2056_Bounds[0][0]
 Y_2056_offset = XY_2056_Bounds[1][0]
-
-OPP_DIRECTIONS = {"N": "S", "S": "N", "W": "E", "E": "W"}
+# sys.exit(1)
 
 # #############################################################################
 # MAIN: Load data
@@ -73,32 +72,34 @@ from tools_plot_lane_results import plot_debug_panel, plot_trajectory_map
 
 setup_registry(geometry_store, segment_registry)
 
-bike_id = 17
+bike_id = 242
 bike_df = df[(df["veh_id"] == bike_id)].copy()
 
-# Run full transform
-import time
-start = time.perf_counter()
-bike_df = to_lane_coordinates(
-    bike_df, movement_registry,
-    segment_registry, geometry_store,
-    max_chain_length=max_chain_length,
-    agent_mode=mode,
-    verbose=True
-)
-end = time.perf_counter()
-print(f"Elapsed time: {end - start:.6f} seconds")
-
-# # Force transform
-# from tools_lane_coords_V4 import to_lane_coordinates_forced
-# bike_df = to_lane_coordinates_forced(
-#     bike_df,
-#     forced_chain=['Roentgenstr_EB'],
-#     segment_registry=segment_registry,
-#     geometry_store=geometry_store,
-#     movement_registry=movement_registry,
-#     verbose=True,
+# # Run full transform
+# import time
+# start = time.perf_counter()
+# bike_df = to_lane_coordinates(
+#     bike_df, movement_registry,
+#     segment_registry, geometry_store,
+#     max_chain_length=max_chain_length,
+#     agent_mode=mode,
+#     verbose=True
 # )
+# end = time.perf_counter()
+# print(f"Elapsed time: {end - start:.6f} seconds")
+
+# Force transform
+from tools_lane_coords_V4 import to_lane_coordinates_forced
+bike_df = to_lane_coordinates_forced(
+    bike_df,
+    forced_chain=['BaslerstrW_WB', 'BaslerstrW_EB', 'turn_BaslerstrW_EB_2_BaslerstrE_EB', 'BaslerstrE_EB'],
+    # forced_chain=['FreihofstrN_SB', 'turn_FreihofstrN_SB_2_BaslerstrE_EB', 'BaslerstrE_EB'],
+    # forced_chain=['BaslerstrE_WB', 'turn_BaslerstrE_WB_2_BaslerstrW_WB', 'BaslerstrW_WB'],
+    segment_registry=segment_registry,
+    geometry_store=geometry_store,
+    movement_registry=movement_registry,
+    verbose=True,
+)
 
 fig = plot_debug_panel(
     bike_df,
