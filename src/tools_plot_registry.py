@@ -35,74 +35,11 @@ from collections import defaultdict
 from pyproj import Transformer
 from scipy.interpolate import splev
 
+from tools_utils import _is_axis_entry, _spline_xy, _build_color_map
+
 # =============================================================================
 # HELPERS
 # =============================================================================
-
-def _is_axis_entry(key, val):
-    """True if geometry_store entry is a spline-based axis dict."""
-    if key in ('x_offset', 'y_offset'):
-        return False
-    if key.startswith('intersection_area') or key.startswith('__'):
-        return False
-    return isinstance(val, dict)
-
-
-# =============================================================================
-# COLOR PALETTE
-# =============================================================================
-# Assigned in geometry_store insertion order, skipping x_offset / y_offset.
-# Extra entries (turns) get a fallback gray.
-_PALETTE = [
-    'steelblue', 'tomato', 'mediumpurple', 'darkorange',
-    'seagreen',  'crimson', 'goldenrod',   'teal',
-    'slategray', 'orchid',  'sienna',      'cornflowerblue',
-    'deeppink',  'olive',   'peru',        'dodgerblue',
-]
-
-def _build_color_map(geometry_store):
-    """
-    Return {geom_key: color} for all lane axes (non-turn entries).
-    Turn entries (s_stop=None) get 'dimgray'.
-    """
-    lane_keys = [
-        k for k, v in geometry_store.items()
-        if _is_axis_entry(k, v) and v.get('s_stop') is not None
-    ]
-    cmap = {k: _PALETTE[i % len(_PALETTE)] for i, k in enumerate(lane_keys)}
-    # Turns
-    for k, v in geometry_store.items():
-        if _is_axis_entry(k, v) and k not in cmap:
-            cmap[k] = 'dimgray'
-    return cmap
-
-
-def _spline_xy(tck, unew, cum_dist, s_start, s_end,
-               d_offset=0.0, n=150):
-    """
-    Evaluate spline at n points between s_start and s_end,
-    laterally offset by d_offset metres (left = positive).
-
-    Returns (x, y) arrays in local EPSG:2056 coords.
-    d_offset=0 gives the centerline.
-    """
-    s_vals = np.linspace(s_start, s_end, n)
-    t_vals = np.interp(s_vals, cum_dist, unew)
-
-    x_c,  y_c  = splev(t_vals, tck, der=0)
-    dx_c, dy_c = splev(t_vals, tck, der=1)
-
-    if d_offset != 0.0:
-        tang = np.sqrt(dx_c**2 + dy_c**2)
-        tang = np.where(tang > 1e-12, tang, 1.0)
-        nx = -dy_c / tang   # left normal
-        ny =  dx_c / tang
-        x_c = x_c + d_offset * nx
-        y_c = y_c + d_offset * ny
-
-    return x_c, y_c
-
-
 def _kml_to_local(geometry, transformer, x_offset, y_offset):
     """Convert a KML WGS84 geometry to local EPSG:2056 coords."""
     xs = [c[0] for c in geometry.coords]
@@ -115,8 +52,8 @@ def _kml_to_local(geometry, transformer, x_offset, y_offset):
 # PLOT 1 — geometry_store
 # =============================================================================
 
-def plot_geometry_store(geometry_store, gdf_swisstopo,
-                        offset_m=3.0, save_path=None):
+def plot_geometry_store(geometry_store, gdf_swisstopo=None,
+                        offset_m=3.0, figuresize=(14, 14), save_path=None):
     """
     Phase 1 validation plot.
 
@@ -144,23 +81,24 @@ def plot_geometry_store(geometry_store, gdf_swisstopo,
     y_offset    = geometry_store['y_offset']
     color_map   = _build_color_map(geometry_store)
 
-    fig, ax = plt.subplots(figsize=(14, 14))
+    fig, ax = plt.subplots(figsize=figuresize)
     ax.set_title(
-        'Geometry store — Phase 1 validation\n'
+        'Geometry store — Phase 1\n'
         'Solid = forward (positive_dir)  |  Dashed = reverse direction\n'
         '▼ = s_change  ▽ = extra s_change_*',
         fontsize=10
     )
 
     # ── Intersection area ─────────────────────────────────────────────────────
-    for _, row in gdf_swisstopo.iterrows():
-        if row['Description'] == 'Intersection_Area':
-            xs_loc, ys_loc = _kml_to_local(
-                row.geometry.exterior, transformer, x_offset, y_offset
-            )
-            ax.fill(xs_loc, ys_loc, alpha=0.10, color='yellow', zorder=1)
-            ax.plot(xs_loc, ys_loc, color='gold', linewidth=1.5,
-                    zorder=2, label='Intersection area')
+    if gdf_swisstopo is not None:
+        for _, row in gdf_swisstopo.iterrows():
+            if row['Description'] == 'Intersection_Area':
+                xs_loc, ys_loc = _kml_to_local(
+                    row.geometry.exterior, transformer, x_offset, y_offset
+                )
+                ax.fill(xs_loc, ys_loc, alpha=0.10, color='yellow', zorder=1)
+                ax.plot(xs_loc, ys_loc, color='gold', linewidth=1.5,
+                        zorder=2, label='Intersection area')
 
     # ── Road axis splines ─────────────────────────────────────────────────────
     first_axis = True
@@ -233,59 +171,62 @@ def plot_geometry_store(geometry_store, gdf_swisstopo,
         first_axis = False
 
     # ── Stop lines ────────────────────────────────────────────────────────────
-    first_stop = True
-    for _, row in gdf_swisstopo.iterrows():
-        if not row['Description'].endswith('_Stop'):
-            continue
-        xs_loc, ys_loc = _kml_to_local(
-            row.geometry, transformer, x_offset, y_offset
-        )
-        ax.plot(xs_loc, ys_loc, color='red', linewidth=2.5,
-                zorder=6, solid_capstyle='round',
-                label='Stop line' if first_stop else '_nolegend_')
-        mid = len(xs_loc) // 2
-        ax.annotate(row['Description'], (xs_loc[mid], ys_loc[mid]),
-                    fontsize=6, color='darkred',
-                    xytext=(4, -10), textcoords='offset points')
-        first_stop = False
+    if gdf_swisstopo is not None:
+        first_stop = True
+        for _, row in gdf_swisstopo.iterrows():
+            if not row['Description'].endswith('_Stop'):
+                continue
+            xs_loc, ys_loc = _kml_to_local(
+                row.geometry, transformer, x_offset, y_offset
+            )
+            ax.plot(xs_loc, ys_loc, color='red', linewidth=2.5,
+                    zorder=6, solid_capstyle='round',
+                    label='Stop line' if first_stop else '_nolegend_')
+            mid = len(xs_loc) // 2
+            ax.annotate(row['Description'], (xs_loc[mid], ys_loc[mid]),
+                        fontsize=6, color='darkred',
+                        xytext=(4, -10), textcoords='offset points')
+            first_stop = False
 
     # ── Yield lines ───────────────────────────────────────────────────────────
-    first_yield = True
-    for _, row in gdf_swisstopo.iterrows():
-        if not row['Description'].endswith('_Yield'):
-            continue
-        xs_loc, ys_loc = _kml_to_local(
-            row.geometry, transformer, x_offset, y_offset
-        )
-        ax.plot(xs_loc, ys_loc, color='darkorange', linewidth=2.5,
-                linestyle='--', zorder=6, solid_capstyle='round',
-                label='Yield line' if first_yield else '_nolegend_')
-        mid = len(xs_loc) // 2
-        ax.annotate(row['Description'], (xs_loc[mid], ys_loc[mid]),
-                    fontsize=6, color='darkorange',
-                    xytext=(4, 4), textcoords='offset points')
-        first_yield = False
+    if gdf_swisstopo is not None:
+        first_yield = True
+        for _, row in gdf_swisstopo.iterrows():
+            if not row['Description'].endswith('_Yield'):
+                continue
+            xs_loc, ys_loc = _kml_to_local(
+                row.geometry, transformer, x_offset, y_offset
+            )
+            ax.plot(xs_loc, ys_loc, color='darkorange', linewidth=2.5,
+                    linestyle='--', zorder=6, solid_capstyle='round',
+                    label='Yield line' if first_yield else '_nolegend_')
+            mid = len(xs_loc) // 2
+            ax.annotate(row['Description'], (xs_loc[mid], ys_loc[mid]),
+                        fontsize=6, color='darkorange',
+                        xytext=(4, 4), textcoords='offset points')
+            first_yield = False
 
     # ── Bike lane boundaries ──────────────────────────────────────────────────
-    DIRECTION_SUFFIXES = ('_NB', '_SB', '_EB', '_WB', '_NE', '_SW')
-    first_bl = True
-    for _, row in gdf_swisstopo.iterrows():
-        desc = row['Description']
-        if not any(desc.endswith(s) for s in DIRECTION_SUFFIXES):
-            continue
-        if desc.endswith('_Stop') or desc.endswith('_Yield'):
-            continue
-        xs_loc, ys_loc = _kml_to_local(
-            row.geometry, transformer, x_offset, y_offset
-        )
-        ax.plot(xs_loc, ys_loc, color='cyan', linewidth=2,
-                zorder=5, solid_capstyle='round',
-                label='Bike lane boundary' if first_bl else '_nolegend_')
-        mid = len(xs_loc) // 2
-        ax.annotate(desc, (xs_loc[mid], ys_loc[mid]),
-                    fontsize=6, color='teal',
-                    xytext=(4, 4), textcoords='offset points')
-        first_bl = False
+    if gdf_swisstopo is not None:
+        DIRECTION_SUFFIXES = ('_NB', '_SB', '_EB', '_WB', '_NE', '_SW')
+        first_bl = True
+        for _, row in gdf_swisstopo.iterrows():
+            desc = row['Description']
+            if not any(desc.endswith(s) for s in DIRECTION_SUFFIXES):
+                continue
+            if desc.endswith('_Stop') or desc.endswith('_Yield'):
+                continue
+            xs_loc, ys_loc = _kml_to_local(
+                row.geometry, transformer, x_offset, y_offset
+            )
+            ax.plot(xs_loc, ys_loc, color='cyan', linewidth=2,
+                    zorder=5, solid_capstyle='round',
+                    label='Bike lane boundary' if first_bl else '_nolegend_')
+            mid = len(xs_loc) // 2
+            ax.annotate(desc, (xs_loc[mid], ys_loc[mid]),
+                        fontsize=6, color='teal',
+                        xytext=(4, 4), textcoords='offset points')
+            first_bl = False
 
     ax.set_xlabel('X local [m]', fontsize=10)
     ax.set_ylabel('Y local [m]', fontsize=10)
@@ -306,9 +247,9 @@ def plot_geometry_store(geometry_store, gdf_swisstopo,
 # PLOT 2 — segment_registry
 # =============================================================================
 
-def plot_segment_registry(geometry_store, segment_registry, gdf_swisstopo,
+def plot_segment_registry(geometry_store, segment_registry, gdf_swisstopo=None,
                            offset_m=3.0, turn_offset_m=1.5,
-                           show_validity_polygons=True,
+                           show_validity_polygons=True, figuresize=(16, 16),
                            save_path=None):
     """
     Phase 2 + 3 validation plot.
@@ -339,23 +280,24 @@ def plot_segment_registry(geometry_store, segment_registry, gdf_swisstopo,
     y_offset    = geometry_store['y_offset']
     color_map   = _build_color_map(geometry_store)
 
-    fig, ax = plt.subplots(figsize=(16, 16))
+    fig, ax = plt.subplots(figsize=figuresize)
     ax.set_title(
-        'Segment registry — Phase 2/3 validation\n'
+        'Segment registry — Phase 2/3\n'
         'Filled = validity polygon  |  Solid = forward  |  Dashed = reverse\n'
         '▼ = s_change  o = turn start  D = turn end',
         fontsize=10
     )
 
     # ── Intersection area ─────────────────────────────────────────────────────
-    for _, row in gdf_swisstopo.iterrows():
-        if row['Description'] == 'Intersection_Area':
-            xs_loc, ys_loc = _kml_to_local(
-                row.geometry.exterior, transformer, x_offset, y_offset
-            )
-            ax.fill(xs_loc, ys_loc, alpha=0.08, color='yellow', zorder=1)
-            ax.plot(xs_loc, ys_loc, color='gold', linewidth=1.5,
-                    zorder=2, label='Intersection area')
+    if gdf_swisstopo is not None:
+        for _, row in gdf_swisstopo.iterrows():
+            if row['Description'] == 'Intersection_Area':
+                xs_loc, ys_loc = _kml_to_local(
+                    row.geometry.exterior, transformer, x_offset, y_offset
+                )
+                ax.fill(xs_loc, ys_loc, alpha=0.08, color='yellow', zorder=1)
+                ax.plot(xs_loc, ys_loc, color='gold', linewidth=1.5,
+                        zorder=2, label='Intersection area')
 
     # ── Lane segments ─────────────────────────────────────────────────────────
     plotted_geom_keys = set()
@@ -483,52 +425,53 @@ def plot_segment_registry(geometry_store, segment_registry, gdf_swisstopo,
                     pass
 
     # ── Stop / yield / bike lane overlays ─────────────────────────────────────
-    DIRECTION_SUFFIXES = ('_NB', '_SB', '_EB', '_WB', '_NE', '_SW')
-    first_stop = first_yield = first_bl = True
-
-    for _, row in gdf_swisstopo.iterrows():
-        desc = row['Description']
-        if desc == 'Intersection_Area':
-            continue
-
-        if desc.endswith('_Stop'):
-            xs_loc, ys_loc = _kml_to_local(
-                row.geometry, transformer, x_offset, y_offset
-            )
-            ax.plot(xs_loc, ys_loc, color='red', linewidth=2,
-                    zorder=7, solid_capstyle='round',
-                    label='Stop line' if first_stop else '_nolegend_')
-            mid = len(xs_loc) // 2
-            ax.annotate(desc, (xs_loc[mid], ys_loc[mid]),
-                        fontsize=6, color='darkred',
-                        xytext=(3, -9), textcoords='offset points')
-            first_stop = False
-
-        elif desc.endswith('_Yield'):
-            xs_loc, ys_loc = _kml_to_local(
-                row.geometry, transformer, x_offset, y_offset
-            )
-            ax.plot(xs_loc, ys_loc, color='darkorange', linewidth=2,
-                    linestyle='--', zorder=7, solid_capstyle='round',
-                    label='Yield line' if first_yield else '_nolegend_')
-            mid = len(xs_loc) // 2
-            ax.annotate(desc, (xs_loc[mid], ys_loc[mid]),
-                        fontsize=6, color='darkorange',
-                        xytext=(3, 4), textcoords='offset points')
-            first_yield = False
-
-        elif any(desc.endswith(s) for s in DIRECTION_SUFFIXES):
-            xs_loc, ys_loc = _kml_to_local(
-                row.geometry, transformer, x_offset, y_offset
-            )
-            ax.plot(xs_loc, ys_loc, color='cyan', linewidth=1.8,
-                    zorder=5, solid_capstyle='round',
-                    label='Bike lane boundary' if first_bl else '_nolegend_')
-            mid = len(xs_loc) // 2
-            ax.annotate(desc, (xs_loc[mid], ys_loc[mid]),
-                        fontsize=6, color='teal',
-                        xytext=(3, 3), textcoords='offset points')
-            first_bl = False
+    if gdf_swisstopo is not None:
+        DIRECTION_SUFFIXES = ('_NB', '_SB', '_EB', '_WB', '_NE', '_SW')
+        first_stop = first_yield = first_bl = True
+    
+        for _, row in gdf_swisstopo.iterrows():
+            desc = row['Description']
+            if desc == 'Intersection_Area':
+                continue
+    
+            if desc.endswith('_Stop'):
+                xs_loc, ys_loc = _kml_to_local(
+                    row.geometry, transformer, x_offset, y_offset
+                )
+                ax.plot(xs_loc, ys_loc, color='red', linewidth=2,
+                        zorder=7, solid_capstyle='round',
+                        label='Stop line' if first_stop else '_nolegend_')
+                mid = len(xs_loc) // 2
+                ax.annotate(desc, (xs_loc[mid], ys_loc[mid]),
+                            fontsize=6, color='darkred',
+                            xytext=(3, -9), textcoords='offset points')
+                first_stop = False
+    
+            elif desc.endswith('_Yield'):
+                xs_loc, ys_loc = _kml_to_local(
+                    row.geometry, transformer, x_offset, y_offset
+                )
+                ax.plot(xs_loc, ys_loc, color='darkorange', linewidth=2,
+                        linestyle='--', zorder=7, solid_capstyle='round',
+                        label='Yield line' if first_yield else '_nolegend_')
+                mid = len(xs_loc) // 2
+                ax.annotate(desc, (xs_loc[mid], ys_loc[mid]),
+                            fontsize=6, color='darkorange',
+                            xytext=(3, 4), textcoords='offset points')
+                first_yield = False
+    
+            elif any(desc.endswith(s) for s in DIRECTION_SUFFIXES):
+                xs_loc, ys_loc = _kml_to_local(
+                    row.geometry, transformer, x_offset, y_offset
+                )
+                ax.plot(xs_loc, ys_loc, color='cyan', linewidth=1.8,
+                        zorder=5, solid_capstyle='round',
+                        label='Bike lane boundary' if first_bl else '_nolegend_')
+                mid = len(xs_loc) // 2
+                ax.annotate(desc, (xs_loc[mid], ys_loc[mid]),
+                            fontsize=6, color='teal',
+                            xytext=(3, 3), textcoords='offset points')
+                first_bl = False
 
     # ── Legend summary ────────────────────────────────────────────────────────
     legend_extra = [
@@ -579,3 +522,295 @@ def plot_segment_registry(geometry_store, segment_registry, gdf_swisstopo,
         plt.close()
     else:
         plt.show()
+        
+        
+# =============================================================================
+# PLOT 2 — segment_registry USING PLOTLY
+# =============================================================================
+import matplotlib as mpl
+import matplotlib.cm as cm
+import matplotlib.colors as mcolors
+import plotly.graph_objects as go
+
+
+def _to_rgba_str(color, alpha=1.0):
+    """Convert any matplotlib-compatible color (name, hex, or RGBA tuple)
+    into a Plotly-compatible 'rgba(r,g,b,a)' string."""
+    r, g, b, a = mcolors.to_rgba(color, alpha=alpha)
+    return f'rgba({int(r * 255)},{int(g * 255)},{int(b * 255)},{a:.3f})'
+ 
+ 
+def plot_segment_registry_plotly(geometry_store, segment_registry,
+                                  offset_m=3.0, turn_offset_m=1.5,
+                                  show_validity_polygons=True,
+                                  width=1000, height=1000):
+    """
+    Phase 2 + 3 validation plot — Plotly version.
+ 
+    Each lane segment and each turn segment gets its own `legendgroup`.
+    Clicking that segment's legend entry toggles its centerline (or turn
+    spline), validity polygon, s_change ticks, label, and start/end
+    markers together — thanks to `legend.groupclick = 'togglegroup'`.
+ 
+    Stop lines, yield lines, and bike-lane boundaries are each their own
+    toggleable group (one legend entry per category, not per line).
+ 
+    A block of inert "style guide" legend entries at the end reproduces
+    the reference key from the matplotlib version (line styles, marker
+    meanings) — these carry no data and toggling them does nothing.
+ 
+    Parameters
+    ----------
+    geometry_store, segment_registry : same as before
+    offset_m, turn_offset_m, show_validity_polygons  : same as before
+    width, height    : figure size in pixels
+ 
+    Returns
+    -------
+    fig : plotly.graph_objects.Figure
+    """
+    transformer = Transformer.from_crs("EPSG:4326", "EPSG:2056", always_xy=True)
+    x_offset    = geometry_store['x_offset']
+    y_offset    = geometry_store['y_offset']
+    color_map   = _build_color_map(geometry_store)
+ 
+    fig = go.Figure()
+ 
+    # ── Lane segments ────────────────────────────────────────────────────
+    for seg_key, entry in segment_registry.items():
+        if entry['type'] != 'lane':
+            continue
+ 
+        geom_key   = entry['geometry_key']
+        is_forward = entry['is_forward']
+        col        = color_map.get(geom_key, 'dimgray')
+ 
+        geo                  = geometry_store[geom_key]
+        tck, unew, cum_dist  = geo['spline']
+        L                    = geo['total_length']
+        s_change             = geo['s_change']
+ 
+        d_offset = +offset_m if is_forward else -offset_m
+        dash     = 'solid'   if is_forward else 'dash'
+        lw       = 3.0       if is_forward else 2.0
+ 
+        legend_group = seg_key
+ 
+        # Centerline with direction offset — this is the toggle handle
+        x_cl, y_cl = _spline_xy(tck, unew, cum_dist, 0, L, d_offset=d_offset)
+        fig.add_trace(go.Scatter(
+            x=x_cl, y=y_cl, mode='lines',
+            line=dict(color=col, width=lw, dash=dash),
+            name=seg_key,
+            legendgroup=legend_group,
+            showlegend=True,
+            hovertemplate=f'{seg_key}<extra></extra>',
+        ))
+ 
+        # Segment key label at midpoint (grouped, no own legend entry)
+        mid_t = float(np.interp(L / 2, cum_dist, unew))
+        xm, ym = splev(mid_t, tck)
+        fig.add_trace(go.Scatter(
+            x=[xm + d_offset * 0.8], y=[ym + d_offset * 0.8],
+            mode='text',
+            text=[seg_key],
+            textfont=dict(size=9, color=col),
+            legendgroup=legend_group,
+            showlegend=False,
+            hoverinfo='skip',
+        ))
+ 
+        # s_change tick — primary handoff boundary (grouped, no own entry)
+        t_sc = float(np.interp(s_change, cum_dist, unew))
+        xsc, ysc = splev(t_sc, tck)
+        fig.add_trace(go.Scatter(
+            x=[xsc], y=[ysc], mode='markers',
+            marker=dict(color=col, size=11, symbol='triangle-down'),
+            legendgroup=legend_group,
+            showlegend=False,
+            hovertemplate=f'{seg_key} s_change<extra></extra>',
+        ))
+ 
+        # Extra s_change_* ticks
+        for key in [k for k in geo if k.startswith('s_change_')]:
+            sc_extra = geo[key]
+            t_sc2    = float(np.interp(sc_extra, cum_dist, unew))
+            xsc2, ysc2 = splev(t_sc2, tck)
+            fig.add_trace(go.Scatter(
+                x=[xsc2], y=[ysc2], mode='markers',
+                marker=dict(color=col, size=9, symbol='triangle-down',
+                            opacity=0.6),
+                legendgroup=legend_group,
+                showlegend=False,
+                hovertemplate=f'{seg_key} {key}<extra></extra>',
+            ))
+ 
+        # Validity polygon
+        if show_validity_polygons:
+            poly = entry.get('validity_polygon')
+            if poly is not None and not poly.is_empty:
+                try:
+                    px, py = poly.exterior.xy
+                    fig.add_trace(go.Scatter(
+                        x=list(px), y=list(py), mode='lines',
+                        fill='toself',
+                        fillcolor=_to_rgba_str(col, 0.10),
+                        line=dict(color=col, width=0.8, dash='dot'),
+                        opacity=0.5,
+                        legendgroup=legend_group,
+                        showlegend=False,
+                        hoverinfo='skip',
+                    ))
+                except Exception:
+                    pass  # MultiPolygon edge case — skip
+ 
+    # ── Turn segments ────────────────────────────────────────────────────
+    turn_entries = {k: v for k, v in segment_registry.items()
+                    if v['type'] == 'turn'}
+ 
+    approach_groups = defaultdict(list)
+    for tk, te in turn_entries.items():
+        approach_groups[te['approach_seg']].append(tk)
+ 
+    turn_d_offsets = {}
+    for app_seg, keys in approach_groups.items():
+        n = len(keys)
+        offsets = np.linspace(-(n - 1) / 2, (n - 1) / 2, n) * turn_offset_m
+        for tk, d_off in zip(keys, offsets):
+            turn_d_offsets[tk] = d_off
+ 
+    try:
+        cmap_turn = mpl.colormaps['tab20']
+    except AttributeError:
+        cmap_turn = cm.get_cmap('tab20')  # older matplotlib fallback
+ 
+    turn_list = list(turn_entries.keys())
+    turn_colors = {tk: cmap_turn(i / max(len(turn_list), 1))
+                   for i, tk in enumerate(turn_list)}
+ 
+    for turn_key, te in turn_entries.items():
+        geom     = geometry_store[turn_key]
+        tck_t, unew_t, cum_t = geom['spline']
+        L_t      = geom['total_length']
+        col_t    = _to_rgba_str(turn_colors[turn_key])
+        method   = geom.get('method', '?')
+        dash_t   = 'solid' if method == 'clothoid' else 'dash'
+        d_off    = turn_d_offsets.get(turn_key, 0.0)
+ 
+        legend_group = turn_key
+ 
+        x_t, y_t = _spline_xy(tck_t, unew_t, cum_t, 0, L_t, d_offset=d_off)
+        fig.add_trace(go.Scatter(
+            x=x_t, y=y_t, mode='lines',
+            line=dict(color=col_t, width=2.5, dash=dash_t),
+            name=f'{turn_key} [{method}]',
+            legendgroup=legend_group,
+            showlegend=True,
+            hovertemplate=f'{turn_key} [{method}]<extra></extra>',
+        ))
+ 
+        # Start / end markers at true spline endpoints
+        xs_t, ys_t = splev(unew_t[[0, -1]], tck_t)
+        fig.add_trace(go.Scatter(
+            x=[xs_t[0]], y=[ys_t[0]], mode='markers',
+            marker=dict(color=col_t, size=11, symbol='circle'),
+            legendgroup=legend_group,
+            showlegend=False,
+            hovertemplate=f'{turn_key} start<extra></extra>',
+        ))
+        fig.add_trace(go.Scatter(
+            x=[xs_t[1]], y=[ys_t[1]], mode='markers',
+            marker=dict(color=col_t, size=11, symbol='diamond'),
+            legendgroup=legend_group,
+            showlegend=False,
+            hovertemplate=f'{turn_key} end<extra></extra>',
+        ))
+ 
+        # Validity polygon
+        if show_validity_polygons:
+            poly = te.get('validity_polygon')
+            if poly is not None and not poly.is_empty:
+                try:
+                    px, py = poly.exterior.xy
+                    fig.add_trace(go.Scatter(
+                        x=list(px), y=list(py), mode='lines',
+                        fill='toself',
+                        fillcolor=_to_rgba_str(turn_colors[turn_key], 0.06),
+                        line=dict(color=col_t, width=0.6, dash='dot'),
+                        opacity=0.4,
+                        legendgroup=legend_group,
+                        showlegend=False,
+                        hoverinfo='skip',
+                    ))
+                except Exception:
+                    pass
+    
+    # Add bike lanes
+    from tools_utils import add_bike_lane_boundaries_plotly
+    
+    add_bike_lane_boundaries_plotly(fig, geometry_store, segment_registry)
+ 
+    # ── Style-guide legend entries (static reference, not toggleable data) ─
+    style_guide = [
+        # dict(name='Lane — forward direction', mode='lines',
+        #      line=dict(color='dimgray', width=3, dash='solid')),
+        # dict(name='Lane — reverse direction', mode='lines',
+        #      line=dict(color='dimgray', width=2, dash='dash')),
+        dict(name='Validity polygon', mode='markers',
+             marker=dict(color='dimgray', size=14, symbol='square', opacity=0.15)),
+        dict(name='s_change boundary', mode='markers',
+             marker=dict(color='dimgray', size=10, symbol='triangle-down')),
+        # dict(name='Turn spline (clothoid)', mode='lines',
+        #      line=dict(color='dimgray', width=2.5, dash='solid')),
+        # dict(name='Turn spline (Hermite)', mode='lines',
+        #      line=dict(color='dimgray', width=2.5, dash='dash')),
+        dict(name='Turn start', mode='markers',
+             marker=dict(color='dimgray', size=10, symbol='circle')),
+        dict(name='Turn end', mode='markers',
+             marker=dict(color='dimgray', size=10, symbol='diamond')),
+        dict(name='Bike lane band', mode='markers',
+         marker=dict(color='mediumseagreen', size=14, symbol='square', opacity=0.2)),
+    ]
+    for i, sg in enumerate(style_guide):
+        fig.add_trace(go.Scatter(
+            x=[None], y=[None],
+            mode=sg['mode'],
+            line=sg.get('line'),
+            marker=sg.get('marker'),
+            name=sg['name'],
+            legendgroup=f'style_guide_{i}',
+            showlegend=True,
+            hoverinfo='skip',
+        ))
+ 
+    # ── Layout ───────────────────────────────────────────────────────────
+    fig.update_layout(
+        title=dict(
+            text=(
+                'Segment registry — Phase 2/3<br>'
+                '<sup>Click a legend entry to toggle that segment\'s '
+                'centerline, validity polygon, and s_change ticks together'
+                '</sup>'
+            ),
+            font=dict(size=14),
+        ),
+        xaxis_title='X local [m]',
+        yaxis_title='Y local [m]',
+        width=width,
+        height=height,
+        legend=dict(
+            groupclick='togglegroup',  # click one item -> toggles whole group
+            font=dict(size=9),
+            itemsizing='constant',
+        ),
+        template='plotly_white',
+        hovermode='closest',
+    )
+    # Equal aspect ratio, like ax.set_aspect('equal')
+    fig.update_yaxes(scaleanchor='x', scaleratio=1)
+    fig.update_xaxes(showgrid=True, gridcolor='rgba(0,0,0,0.1)')
+    fig.update_yaxes(showgrid=True, gridcolor='rgba(0,0,0,0.1)')
+ 
+    return fig
+
+

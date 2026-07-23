@@ -1,10 +1,10 @@
 @echo off
 
-set VEH_TYPE=vehicle
+set VEH_TYPE=bike
 set FLAG=False
 
 
-GOTO:skip1
+
 set DATE=2025-06-16
 
 set INTERSECTION=D1
@@ -111,7 +111,7 @@ for %%S in (PM1 PM2 PM3 PM4 PM5 PM6) do (
     echo Running: %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %FLAG%
     python main_subsampling.py %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %FLAG%
 )
-:skip1
+
 
 
 set DATE=2025-09-30

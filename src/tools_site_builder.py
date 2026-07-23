@@ -493,7 +493,8 @@ def register_geometries(raw_axes, gdf_stop_yield, x_offset, y_offset):
         s_yield = _project(_get_geom(yield_id))
  
         # s_change = 0.5 * (s_stop + s_yield)
-        s_change = 0.4 * s_stop +  0.6 * s_yield
+        ratio    = ax.get('change_ratio', 0.6)
+        s_change = (1-ratio) * s_stop +  ratio * s_yield
         frac     = s_change / L if L > 0 else 0.0
  
         print(f"    s_stop={s_stop:.2f}  s_yield={s_yield:.2f}  "

@@ -42,6 +42,7 @@ from shapely.plotting import plot_line
 
 from _constants import BikeZ_Config
 from tools_coordinate_transform import cut_line_at_stop
+from tools_coordinate_transform import densify_linestring
 from tools_site_builder import (
     fit_spline_from_osmnx,
     merge_osmnx_edges,
@@ -138,8 +139,10 @@ tck_BE, unew_BE, cum_BE, len_BE = fit_spline_from_shapely(
 flur_full   = merge_osmnx_edges(gdf, 'Flurstrasse')
 basler_line    = merge_osmnx_edges(gdf, 'Baslerstrasse')
 flur_north  = cut_line_at_stop(flur_full, basler_line, choose='last',  plotting=False)
+flur_north  = densify_linestring(line=flur_north, num_segments=10)
 flur_south  = cut_line_at_stop(flur_full, basler_line, choose='first', plotting=False)
- 
+flur_south  = densify_linestring(line=flur_south, num_segments=10)
+
 tck_FN, unew_FN, cum_FN, len_FN = fit_spline_from_shapely(
     flur_north, x_offset=X_2056_offset, y_offset=Y_2056_offset,
 )

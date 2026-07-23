@@ -26,7 +26,7 @@ from typing import Tuple, Dict
 class BikeZ_Config:
     timezone = pytz.timezone('Europe/Berlin')
     fps: float = 25.0
-    dir_root: str = "C:/Users/tramseier/Documents/Datasets/BikeZ/"
+    dir_root: str = "C:/Users/ShaimaaElBaklish/Documents/Datasets/BikeZ/"
     avail_modes: Tuple[str] = ("bike", "vehicle")
     data_root: Dict = field(default_factory=lambda: {
         "Zurich_202506": {

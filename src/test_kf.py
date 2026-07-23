@@ -114,7 +114,7 @@ for veh_id, veh_df in df.groupby('veh_id'):
 # top2 = counts.nlargest(2)
 # turning bikes: 68, (missing) 14
 
-sel_bike_id = 1
+sel_bike_id = 242
 bike_df = df[(df['veh_id'] == sel_bike_id)]
 bike_df = bike_df.sort_values(by='time', ascending=True)
 

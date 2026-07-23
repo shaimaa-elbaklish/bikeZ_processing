@@ -194,6 +194,7 @@ RAW_AXES = [
         'line_wgs84':    basler_west,
         'stop_line_id':  'BaslerstrW_Stop',
         'yield_line_id': 'BaslerstrW_Yield',
+        'change_ratio':   1.0,   # optional — defaults to 0.6 if omitted; 0 at stop and 1 at yield
     },
     {
         'name':          'BaslerstrE',
@@ -203,6 +204,7 @@ RAW_AXES = [
         'line_wgs84':    basler_east,
         'stop_line_id':  'BaslerstrE_Stop',
         'yield_line_id': 'BaslerstrE_Yield',
+        'change_ratio':   1.0,   # optional — defaults to 0.6 if omitted; 0 at stop and 1 at yield
     },
     {
         'name':          'FreihofstrN',
@@ -212,6 +214,7 @@ RAW_AXES = [
         'line_wgs84':    freihof_north,
         'stop_line_id':  'FreihofstrN_Stop',
         'yield_line_id': 'FreihofstrN_Yield',
+        'change_ratio':   1.0,   # optional — defaults to 0.6 if omitted; 0 at stop and 1 at yield
     },
     {
         'name':          'FreihofstrS',
@@ -221,6 +224,7 @@ RAW_AXES = [
         'line_wgs84':    freihof_south,
         'stop_line_id':  'FreihofstrS_Stop',
         'yield_line_id': 'FreihofstrS_Yield',
+        'change_ratio':   1.0,   # optional — defaults to 0.6 if omitted; 0 at stop and 1 at yield
     },
 ]
 
@@ -242,10 +246,10 @@ print("--- Phase 2: build segment registry ---")
 SEG_DEFS = [
     # ── Baslerstrasse West ────────────────────────────────────────────────────
     {'seg_key': 'BaslerstrW_EB', 'geometry_key': 'BaslerstrW',
-     'direction': 'EB', 'mode': 'shared', 'bike_lane': {'w_bike': 2.0},
+     'direction': 'EB', 'mode': 'bike', 'bike_lane': {'w_bike': 4.5},
      'd_left': 1.5, 'd_right': 11.0},
     {'seg_key': 'BaslerstrW_WB', 'geometry_key': 'BaslerstrW',
-     'direction': 'WB', 'mode': 'bike', 'bike_lane': {'w_bike': 4.5},
+     'direction': 'WB', 'mode': 'shared', 'bike_lane': {'w_bike': 2.0},
      'd_left': 2.5, 'd_right': 11.0},
     
     # ── Baslerstrasse East ────────────────────────────────────────────────────

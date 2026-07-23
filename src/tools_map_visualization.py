@@ -247,6 +247,28 @@ def _spline_to_latlon(tck, unew, cum_dist, s_start, s_end,
     t_vals = np.interp(s_vals, cum_dist, unew)
     x_loc, y_loc = splev(t_vals, tck)
     return _local_to_latlon(x_loc, y_loc, x_offset, y_offset)
+
+
+def _spline_sd_to_latlon(tck, unew, cum_dist, s_vals, d_vals,
+                          x_offset, y_offset):
+    """
+    Like _spline_to_latlon, but accepts an array of per-point lateral
+    offsets (d_vals) instead of a fixed d_offset — needed when the offset
+    varies along s (e.g. a bike lane boundary spline).
+
+    s_vals, d_vals : arrays of the same length, d in metres (left = +).
+    Returns a list of (lat, lon) tuples.
+    """
+    t_vals = np.interp(s_vals, cum_dist, unew)
+    x_c,  y_c  = splev(t_vals, tck, der=0)
+    dx_c, dy_c = splev(t_vals, tck, der=1)
+    tang = np.sqrt(dx_c**2 + dy_c**2)
+    tang = np.where(tang > 1e-12, tang, 1.0)
+    nx = -dy_c / tang   # left normal, same convention as _spline_xy / _spline_to_latlon
+    ny =  dx_c / tang
+    x_c = x_c + d_vals * nx
+    y_c = y_c + d_vals * ny
+    return _local_to_latlon(x_c, y_c, x_offset, y_offset)
  
  
 def _s_to_latlon(s_val, tck, unew, cum_dist, x_offset, y_offset):
@@ -319,7 +341,7 @@ def _build_color_map(geometry_store):
 # CREATE REGISTRY MAP
 # =============================================================================
 def create_registry_map(geometry_store, segment_registry, movement_registry,
-                         gdf_swisstopo,
+                         gdf_swisstopo=None,
                          center_lat=None, center_lon=None,
                          zoom_start=19,
                          save_path=None):
@@ -374,78 +396,85 @@ def create_registry_map(geometry_store, segment_registry, movement_registry,
     # =========================================================================
     # GROUP 0 — KML overlays
     # =========================================================================
-    DIRECTION_SUFFIXES = ('_NB', '_SB', '_EB', '_WB', '_NE', '_SW')
- 
-    fg_poly  = folium.FeatureGroup(name='KML — Intersection area',  show=True)
-    fg_stop  = folium.FeatureGroup(name='KML — Stop lines',         show=True)
-    fg_yield = folium.FeatureGroup(name='KML — Yield lines',        show=True)
-    fg_bike  = folium.FeatureGroup(name='KML — Bike lane boundaries', show=True)
- 
-    for _, row in gdf_swisstopo.iterrows():
-        desc = row['Description']
-        geom = row.geometry
- 
-        if desc == 'Intersection_Area':
-            coords = _kml_geom_to_latlon(geom.exterior)
-            folium.Polygon(
-                locations=coords,
-                color='gold', weight=2,
-                fill=True, fill_color='yellow', fill_opacity=0.15,
-                tooltip='Intersection area',
-            ).add_to(fg_poly)
- 
-        elif desc.endswith('_Stop'):
-            folium.PolyLine(
-                locations=_kml_geom_to_latlon(geom),
-                color='red', weight=3, opacity=0.9,
-                tooltip=desc,
-            ).add_to(fg_stop)
-            # Label at midpoint
-            coords = list(geom.coords)
-            mid    = coords[len(coords) // 2]
-            folium.Marker(
-                location=(mid[1], mid[0]),
-                tooltip=desc,
-                icon=folium.DivIcon(
-                    html=f'<div style="font-size:9px;color:darkred;'
-                         f'font-weight:bold;white-space:nowrap">{desc}</div>',
-                    icon_size=(120, 16),
-                ),
-            ).add_to(fg_stop)
- 
-        elif desc.endswith('_Yield'):
-            folium.PolyLine(
-                locations=_kml_geom_to_latlon(geom),
-                color='darkorange', weight=3, opacity=0.9,
-                dash_array='8 5',
-                tooltip=desc,
-            ).add_to(fg_yield)
-            coords = list(geom.coords)
-            mid    = coords[len(coords) // 2]
-            folium.Marker(
-                location=(mid[1], mid[0]),
-                tooltip=desc,
-                icon=folium.DivIcon(
-                    html=f'<div style="font-size:9px;color:darkorange;'
-                         f'font-weight:bold;white-space:nowrap">{desc}</div>',
-                    icon_size=(120, 16),
-                ),
-            ).add_to(fg_yield)
- 
-        elif any(desc.endswith(s) for s in DIRECTION_SUFFIXES):
-            folium.PolyLine(
-                locations=_kml_geom_to_latlon(geom),
-                color='cyan', weight=3, opacity=0.85,
-                tooltip=desc,
-            ).add_to(fg_bike)
- 
-    fg_poly.add_to(m)
-    fg_stop.add_to(m)
-    fg_yield.add_to(m)
-    fg_bike.add_to(m)
- 
+    if gdf_swisstopo is not None:
+        DIRECTION_SUFFIXES = ('_NB', '_SB', '_EB', '_WB', '_NE', '_SW')
+     
+        fg_poly  = folium.FeatureGroup(name='KML — Intersection area',  show=True)
+        fg_stop  = folium.FeatureGroup(name='KML — Stop lines',         show=True)
+        fg_yield = folium.FeatureGroup(name='KML — Yield lines',        show=True)
+        fg_bike  = folium.FeatureGroup(name='KML — Bike lane boundaries', show=True)
+     
+        for _, row in gdf_swisstopo.iterrows():
+            desc = row['Description']
+            geom = row.geometry
+     
+            if desc == 'Intersection_Area':
+                coords = _kml_geom_to_latlon(geom.exterior)
+                folium.Polygon(
+                    locations=coords,
+                    color='gold', weight=2,
+                    fill=True, fill_color='yellow', fill_opacity=0.15,
+                    tooltip='Intersection area',
+                ).add_to(fg_poly)
+     
+            elif desc.endswith('_Stop'):
+                folium.PolyLine(
+                    locations=_kml_geom_to_latlon(geom),
+                    color='red', weight=3, opacity=0.9,
+                    tooltip=desc,
+                ).add_to(fg_stop)
+                # Label at midpoint
+                coords = list(geom.coords)
+                mid    = coords[len(coords) // 2]
+                folium.Marker(
+                    location=(mid[1], mid[0]),
+                    tooltip=desc,
+                    icon=folium.DivIcon(
+                        html=f'<div style="font-size:9px;color:darkred;'
+                             f'font-weight:bold;white-space:nowrap">{desc}</div>',
+                        icon_size=(120, 16),
+                    ),
+                ).add_to(fg_stop)
+     
+            elif desc.endswith('_Yield'):
+                folium.PolyLine(
+                    locations=_kml_geom_to_latlon(geom),
+                    color='darkorange', weight=3, opacity=0.9,
+                    dash_array='8 5',
+                    tooltip=desc,
+                ).add_to(fg_yield)
+                coords = list(geom.coords)
+                mid    = coords[len(coords) // 2]
+                folium.Marker(
+                    location=(mid[1], mid[0]),
+                    tooltip=desc,
+                    icon=folium.DivIcon(
+                        html=f'<div style="font-size:9px;color:darkorange;'
+                             f'font-weight:bold;white-space:nowrap">{desc}</div>',
+                        icon_size=(120, 16),
+                    ),
+                ).add_to(fg_yield)
+     
+            elif any(desc.endswith(s) for s in DIRECTION_SUFFIXES):
+                folium.PolyLine(
+                    locations=_kml_geom_to_latlon(geom),
+                    color='cyan', weight=3, opacity=0.85,
+                    tooltip=desc,
+                ).add_to(fg_bike)
+     
+        fg_poly.add_to(m)
+        fg_stop.add_to(m)
+        fg_yield.add_to(m)
+        fg_bike.add_to(m)
+    
     # =========================================================================
-    # GROUP 0b — Intersection area polygons (from geometry_store)
+    # GROUP 0b — Bike Lane Corridors
+    # =========================================================================
+    add_bike_lane_layer_folium(m, geometry_store, segment_registry,
+                                x_offset, y_offset)
+    
+    # =========================================================================
+    # GROUP 0c — Intersection area polygons (from geometry_store)
     # One FeatureGroup per intersection_area_* key.
     # These are the computed polygons (built from s_change normal lines),
     # distinct from the KML Intersection_Area overlay above.
@@ -778,4 +807,78 @@ def create_registry_map(geometry_store, segment_registry, movement_registry,
         print(f"Map saved to {save_path}")
  
     return m
+
+
+def add_bike_lane_layer_folium(m, geometry_store, segment_registry,
+                                x_offset, y_offset,
+                                n_pts=50, color='#00CC96', show=True):
+    """
+    Adds a 'Bike lanes (computed)' FeatureGroup to an existing folium map,
+    drawing each lane segment's bike lane as a filled corridor between its
+    near and far boundary splines — mirrors add_bike_lane_boundaries_plotly
+    but in lat/lon for folium.
+
+    Parameters
+    ----------
+    m : folium.Map — map to add the layer to (mutated in place)
+    geometry_store, segment_registry : same as create_registry_map
+    x_offset, y_offset : from geometry_store
+    n_pts  : samples along each bike lane's s_domain
+    color  : corridor fill/line color
+    show   : whether the layer is visible by default
+
+    Returns
+    -------
+    m : same map, for chaining
+    """
+    fg_bike_computed = folium.FeatureGroup(
+        name='Bike lanes (computed)', show=show
+    )
+
+    for seg_key, entry in segment_registry.items():
+        if entry['type'] != 'lane':
+            continue
+
+        bike_lane = entry.get('bike_lane')
+        if bike_lane is None or 'd_boundary_spline' not in bike_lane:
+            continue
+
+        geom_key = entry['geometry_key']
+        geo      = geometry_store[geom_key]
+        tck, unew, cum_dist = geo['spline']
+
+        d_bnd_spl    = bike_lane['d_boundary_spline']
+        w_bike       = bike_lane['w_bike']
+        side         = bike_lane['side']
+        s_min, s_max = bike_lane['s_domain']
+
+        s_bl  = np.linspace(s_min, s_max, n_pts)
+        d_bnd = d_bnd_spl(s_bl)
+        d_far = d_bnd + side * w_bike
+
+        latlon_bnd = _spline_sd_to_latlon(tck, unew, cum_dist, s_bl, d_bnd,
+                                           x_offset, y_offset)
+        latlon_far = _spline_sd_to_latlon(tck, unew, cum_dist, s_bl, d_far,
+                                           x_offset, y_offset)
+
+        # Filled corridor band
+        band = latlon_bnd + latlon_far[::-1] + [latlon_bnd[0]]
+        folium.Polygon(
+            locations=band,
+            color=color, weight=1, opacity=0.6,
+            fill=True, fill_color=color, fill_opacity=0.20,
+            tooltip=f'{seg_key} bike lane (w={w_bike:.2f} m)',
+        ).add_to(fg_bike_computed)
+
+        # Near boundary line (crisper edge)
+        folium.PolyLine(
+            locations=latlon_bnd,
+            color=color, weight=2, opacity=0.9,
+            dash_array='4 3',
+            tooltip=f'{seg_key} bike lane boundary',
+        ).add_to(fg_bike_computed)
+
+    fg_bike_computed.add_to(m)
+    return m
+
 

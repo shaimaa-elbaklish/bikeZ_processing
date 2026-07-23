@@ -1,12 +1,13 @@
 @echo off
 
-set VEH_TYPE=bike
+set VEH_TYPE=vehicle
 set FLAG=False
 
 
+GOTO:skip1
 set DATE=2025-06-16
 
-GOTO:skip1
+
 set INTERSECTION=D1
 set CODE=A
 for %%S in (AM1 AM2 AM3 AM4 AM5 AM6 PM1 PM2 PM3 PM4 PM5 PM6) do (
@@ -41,12 +42,12 @@ for %%S in (AM1 AM2 AM3 AM4 AM5 AM6 PM1 PM2 PM3 PM4 PM5 PM6) do (
     echo Running: %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %FLAG%
     python main_kf.py %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %FLAG%
 )
-:skip1
+
 
 
 set DATE=2025-06-17
 
-GOTO:skip2
+
 set INTERSECTION=D1
 set CODE=A
 for %%S in (AM1 AM2 AM3 AM4 AM5 AM6) do (
@@ -60,7 +61,6 @@ for %%S in (PM1 PM2 PM3 PM4 PM5 PM6) do (
     echo Running: %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %FLAG%
     python main_kf.py %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %FLAG%
 )
-:skip2
 
 set INTERSECTION=D2
 set CODE=C
@@ -82,11 +82,13 @@ for %%S in (AM1 AM2 AM3 AM4 AM5 AM6 PM1 PM2 PM3 PM4 PM5 PM6) do (
     echo Running: %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %FLAG%
     python main_kf.py %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %FLAG%
 )
-
+:skip1
 
 
 set DATE=2025-09-29
 
+
+GOTO:skip2
 set INTERSECTION=D1
 set CODE=A
 for %%S in (AM1 AM2 AM3 AM4 AM5 AM6) do (
@@ -97,6 +99,14 @@ for %%S in (AM1 AM2 AM3 AM4 AM5 AM6) do (
 set INTERSECTION=D1
 set CODE=C
 for %%S in (PM1 PM2 PM3 PM4 PM5 PM6) do (
+    echo Running: %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %FLAG%
+    python main_kf.py %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %FLAG%
+)
+:skip2
+
+set INTERSECTION=D1
+set CODE=C
+for %%S in (PM4 PM5 PM6) do (
     echo Running: %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %FLAG%
     python main_kf.py %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %FLAG%
 )
@@ -116,7 +126,7 @@ for %%S in (PM1 PM2 PM3 PM4 PM5 PM6) do (
 )
 
 
-GOTO:skip3
+
 set DATE=2025-09-30
 
 
@@ -148,4 +158,4 @@ for %%S in (AM1 AM2 AM3 AM4 AM5 AM6) do (
     echo Running: %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %FLAG%
     python main_kf.py %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %FLAG%
 )
-:skip3
+

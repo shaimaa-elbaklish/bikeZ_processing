@@ -82,11 +82,12 @@ for %%S in (AM1 AM2 AM3 AM4 AM5 AM6 PM1 PM2 PM3 PM4 PM5 PM6) do (
     echo Running: %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %SUBSAMPLED_FLAG% %DEBUG_FLAG%
     python main_coordinate_transform.py %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %SUBSAMPLED_FLAG% %DEBUG_FLAG%
 )
-
+:skip2
 
 
 set DATE=2025-09-29
 
+GOTO:skip3
 set INTERSECTION=D1
 set CODE=A
 for %%S in (AM1 AM2 AM3 AM4 AM5 AM6) do (
@@ -107,6 +108,7 @@ for %%S in (AM1 AM2 AM3 AM4 AM5 AM6) do (
     echo Running: %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %SUBSAMPLED_FLAG% %DEBUG_FLAG%
     python main_coordinate_transform.py %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %SUBSAMPLED_FLAG% %DEBUG_FLAG%
 )
+:skip3
 
 set INTERSECTION=D2
 set CODE=E
@@ -114,13 +116,12 @@ for %%S in (PM1 PM2 PM3 PM4 PM5 PM6) do (
     echo Running: %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %SUBSAMPLED_FLAG% %DEBUG_FLAG%
     python main_coordinate_transform.py %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %SUBSAMPLED_FLAG% %DEBUG_FLAG%
 )
-:skip2
 
 
 
 set DATE=2025-09-30
 
-GOTO:skip3
+GOTO:skip4
 set INTERSECTION=D1
 set CODE=G
 for %%S in (AM1 AM2 AM3 AM4 AM5 AM6) do (
@@ -134,7 +135,7 @@ for %%S in (AM1 AM2 AM3 AM4 AM5 AM6) do (
     echo Running: %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %SUBSAMPLED_FLAG% %DEBUG_FLAG%
     python main_coordinate_transform.py %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %SUBSAMPLED_FLAG% %DEBUG_FLAG%
 )
-:skip3
+:skip4
 
 set INTERSECTION=D1
 set CODE=H

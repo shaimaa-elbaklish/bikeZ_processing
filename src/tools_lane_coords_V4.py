@@ -51,6 +51,7 @@ Authors : ETH Zürich IVT
 # =============================================================================
 import logging
 import numpy as np
+import pandas as pd
 
 from scipy.interpolate import splev
 from shapely.geometry import Point
@@ -1927,3 +1928,162 @@ def to_lane_coordinates_forced(
         prev_role         = role
 
     return bike_df
+
+
+# =============================================================================
+# RECOMPUTE DIRECTED S/D COORDINATES + CUMULATIVE S
+# =============================================================================
+def _stitch_continuous_s(s_raw, seg_ids, xy):
+    """
+    Offset-stitch per-segment directed 's' into one continuous axis,
+    preserving the local shape of 's' (no abs()/odometer conversion).
+ 
+    Adjacent matched segments (no unmatched rows between them) are
+    re-anchored so the new segment's first valid 's' picks up exactly
+    where the previous segment's last valid 's' left off — zero added
+    distance, since the handoff row represents the same physical point.
+ 
+    Runs separated by unmatched rows (segment_id null / not found, or a
+    matched run with no finite 's' at all) are bridged with the
+    straight-line xy distance between the last valid point before the
+    gap and the first valid point after it.
+ 
+    NaN-safe: works whether unmatched segment_id is Python None (in
+    memory) or NaN (after a CSV round-trip).
+ 
+    Parameters
+    ----------
+    s_raw   : (n,) array — per-row directed 's' (NaN where unmatched)
+    seg_ids : (n,) array-like — per-row segment_id (None/NaN allowed)
+    xy      : (n,2) array — per-row x_ekf, y_ekf
+ 
+    Returns
+    -------
+    s_stitched : (n,) array
+    """
+    n = len(s_raw)
+    s_stitched = np.full(n, np.nan)
+ 
+    # Contiguous runs of the same segment_id, NaN-safe.
+    seg_filled = pd.Series(seg_ids).fillna('__UNMATCHED__').to_numpy()
+    run_id = np.zeros(n, dtype=int)
+    for i in range(1, n):
+        run_id[i] = run_id[i - 1] + (0 if seg_filled[i] == seg_filled[i - 1] else 1)
+ 
+    offset        = 0.0
+    prev_s_last   = np.nan
+    prev_last_idx = None
+ 
+    for r in np.unique(run_id):
+        idx = np.where(run_id == r)[0]
+ 
+        if pd.isna(seg_ids[idx[0]]):
+            continue  # unmatched run — leave NaN, bridge on next matched run
+ 
+        s_win = s_raw[idx]
+        valid = np.isfinite(s_win)
+        if not valid.any():
+            continue  # matched but no finite 's' — treat like a gap too
+ 
+        first_local = int(np.argmax(valid))
+        first_idx   = idx[first_local]
+ 
+        if np.isfinite(prev_s_last):
+            if prev_last_idx is not None and first_idx == prev_last_idx + 1:
+                gap_dist = 0.0  # immediately adjacent — pure re-anchoring
+            else:
+                gap_dist = float(np.hypot(xy[first_idx, 0] - xy[prev_last_idx, 0],
+                                           xy[first_idx, 1] - xy[prev_last_idx, 1]))
+            offset = (prev_s_last + gap_dist) - s_win[first_local]
+        # else: first matched run in the trajectory — offset stays 0.0
+ 
+        s_stitched[idx] = np.where(valid, s_win + offset, np.nan)
+ 
+        valid_idx     = idx[valid]
+        prev_s_last   = s_stitched[valid_idx[-1]]
+        prev_last_idx = valid_idx[-1]
+ 
+    return s_stitched
+ 
+ 
+def compute_travel_directed_s_d(bike_df, segment_registry, geometry_store):
+    """
+    Recompute 's', 'd', and 'cumulative_s' for one bicycle trajectory
+    from its reduced columns (must include 'segment_id', 'is_reverse',
+    's_native', 'd_native', 'x_ekf', 'y_ekf').
+ 
+    's' / 'd'
+    ---------
+    Reconstructed exactly as in transform_segment:
+        eff_forward = is_forward XOR is_reverse
+        d = d_native            if eff_forward else -d_native
+        s = compute_directed_s(s_native, ..., is_reverse)   # handles
+                                                              # s_change / L
+    Rows with no segment match (segment_id is null / not in registry)
+    are left as NaN, matching original behaviour for unmatched rows.
+ 
+    'cumulative_s'
+    --------------
+    's' re-anchored to be continuous across segment boundaries, keeping
+    its original shape (see _stitch_continuous_s):
+      - Adjacent matched segments: offset so they connect with zero gap.
+      - Runs separated by unmatched rows: bridged with the straight-line
+        xy distance across the gap.
+ 
+    Parameters
+    ----------
+    bike_df          : DataFrame — single bicycle trajectory, row order
+                        assumed to be chronological.
+    segment_registry : dict
+    geometry_store    : dict
+ 
+    Returns
+    -------
+    df : copy of bike_df with 's', 'd', 'cumulative_s' columns added/overwritten.
+    """
+    df = bike_df.copy().reset_index(drop=True)
+    n  = len(df)
+ 
+    if n == 0:
+        df['s'] = df['d'] = df['cumulative_s'] = pd.Series(dtype=float)
+        return df
+ 
+    s_directed = np.full(n, np.nan)
+    d_directed = np.full(n, np.nan)
+ 
+    # ── Contiguous runs of the same segment_id (NaN/None = unmatched) ──────
+    seg_id_filled = df['segment_id'].fillna('__UNMATCHED__')
+    run_id = (seg_id_filled != seg_id_filled.shift()).cumsum().to_numpy()
+ 
+    for r in np.unique(run_id):
+        idx = np.where(run_id == r)[0]
+        seg_key = df['segment_id'].iloc[idx[0]]
+ 
+        if pd.isna(seg_key) or seg_key not in segment_registry:
+            continue  # unmatched run — leave s/d as NaN
+ 
+        s_native_vals = df['s_native'].to_numpy(dtype=float)[idx]
+        d_native_vals = df['d_native'].to_numpy(dtype=float)[idx]
+        is_rev        = bool(df['is_reverse'].iloc[idx[0]])
+ 
+        is_forward = segment_registry[seg_key]['is_forward']
+ 
+        s_dir = compute_directed_s(
+            s_native_vals, seg_key, segment_registry, geometry_store, is_rev
+        )
+        eff_forward = is_forward ^ is_rev
+        d_dir = d_native_vals if eff_forward else -d_native_vals
+ 
+        s_directed[idx] = s_dir
+        d_directed[idx] = d_dir
+ 
+    df['s'] = s_directed
+    df['d'] = d_directed
+ 
+    # ── cumulative_s: shape-preserving stitch across segment boundaries ────
+    xy = df[['x_ekf', 'y_ekf']].to_numpy(dtype=float)
+    df['cumulative_s'] = _stitch_continuous_s(
+        s_directed, df['segment_id'].to_numpy(), xy
+    )
+ 
+    return df

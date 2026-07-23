@@ -12,6 +12,7 @@ Submitted to:   JOURNAL
 # IMPORTS
 # #############################################################################
 import os
+import gc
 import sys
 import pickle
 import argparse
@@ -141,7 +142,15 @@ for bike_id in tqdm(unique_ids, desc=f"Processing Coordinate Transform on {mode}
 
 if SUBSAMPLED:
     filename = f"location_{loc_num}/{loc_num}_{mode}s_{date}_{timeslot}_lane.csv"
-    mod_df.to_csv(subsampled_data_root + filename, index=False)
+    save_mod_df = mod_df.copy()
+    # retain only s_native/d_native
+    save_mod_df = save_mod_df.drop(columns=['s', 'd'])
+    # convert speeds from km/h to m/s
+    speed_cols = ['speed_ekf', 's_dot', 'd_dot']
+    save_mod_df[speed_cols] = save_mod_df[speed_cols] / 3.6
+    save_mod_df.to_csv(subsampled_data_root + filename, index=False)
+    del save_mod_df
+    gc.collect()
 else:
     if mode == "bike":
         filename = f"trajectories_bikes_{date}_{intersection}_{timeslot}_{code}-1-ekf-lane.csv"

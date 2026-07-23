@@ -80,8 +80,8 @@ kml_path      = '../maps/from_swisstopo/June_D1.kml'
 save_path     = f'../data/registry_{date}_{intersection}_{code}.pkl'
 max_chain_len = 5    # 3 for standard movements + 2 for Mattengasse chain
 
-# Link to edit drawing: https://s.geo.admin.ch/9oi5me9ipl29
-# Share Link: https://s.geo.admin.ch/znp527u6rh32
+# Link to edit drawing: https://s.geo.admin.ch/an2gmd9mh9zf
+# Share Link: https://s.geo.admin.ch/h2rb3k3hqdqb
 # GIS Share Link: https://geo.zh.ch/s/d4e68882-4d3a-4946-b208-6eb95c78f4da
 
 # #############################################################################
@@ -307,7 +307,7 @@ SEG_DEFS = [
      'direction': 'SB', 'mode': 'shared', 'bike_lane': None,
      'd_left': 2.5, 'd_right': 12.0},
     {'seg_key': 'Matteng_NB', 'geometry_key': 'Matteng',
-     'direction': 'NB', 'mode': 'bike', 'bike_lane': {'w_bike': 1.5},
+     'direction': 'NB', 'mode': 'bike', 'bike_lane': {'w_bike': 1.2},
      'd_left': 2.5, 'd_right': 12.0},
 ]
  
