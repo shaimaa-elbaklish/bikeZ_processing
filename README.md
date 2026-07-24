@@ -330,6 +330,6 @@ python generate_timestamped_map.py 2025-06-16 D3 E AM1 True 1
     subsampled_data_root = "/usr/path/to/BikeZ-Subsampled/"    # <-- CHANGE HERE -->
     ```
 
-Output is saved to `../maps/timestamped_trajectories_ALL_map_<date>_<intersection>_<timeslot>_<code>.html`.
+Output is saved to `../maps/timestamped_trajectories_ALL_map_<date>_<intersection>_<timeslot>_<code>_history<history_len>s.html`.
 
 ---
