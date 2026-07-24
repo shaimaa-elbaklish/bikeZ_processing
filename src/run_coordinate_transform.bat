@@ -1,8 +1,8 @@
 @echo off
 
 set VEH_TYPE=bike
-set DEBUG_FLAG=False
-set SUBSAMPLED_FLAG=True
+set DEBUG_FLAG=True
+set SUBSAMPLED_FLAG=False
 
 set DATE=2025-06-16
 

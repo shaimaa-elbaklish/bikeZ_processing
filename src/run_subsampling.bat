@@ -1,6 +1,6 @@
 @echo off
 
-set VEH_TYPE=bike
+set VEH_TYPE=vehicle
 set FLAG=False
 
 

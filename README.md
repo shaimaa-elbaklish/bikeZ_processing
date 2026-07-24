@@ -1,6 +1,51 @@
 # BikeZ-ETH Analysis
 
-## Setup
+## Table of Contents
+
+- [Installation](#installation)
+- [Setup and Configuration](#setup-and-configuration)
+- **Data Processing**
+    - [EKF + Gap Inference Algorithm](#mobilysis-data-processing-ekf--gap-inference-algorithm)
+    - [Sub-sampling](#mobilysis-data-processing-sub-sampling)
+    - [Lane Coordinate Transformation](#mobilysis-data-processing-lane-coordinate-transformation)
+- **Data Visualization**
+    - [HTML Animation Tools](#data-visualization-tools)
+- **Usage Examples**
+    - [Tutorial](src/tutorial.ipynb)
+
+
+## Installation
+
+This project was developed on Windows (win-64) with **Python 3.13**, and has also been verified to install cleanly on **Python 3.11+**.
+
+1. Create and activate a virtual environment:
+    ```bash
+    python -m venv bicycles
+
+    # Windows
+    bicycles\Scripts\activate
+
+    # macOS/Linux
+    source bicycles/bin/activate
+    ```
+    *OR* create a conda environment:
+    ```bash
+    conda create -n bicycles python=3.11
+    conda activate bicycles
+    ```
+
+2. Install dependencies:
+    ```bash
+    pip install -r pip_requirements.txt
+    ```
+
+### Notes
+- Dependency resolution has been tested on Windows for Python 3.11–3.13. If installing on Linux/macOS, some packages may require the system libraries noted above to build successfully.
+- Some packages (`fiona`, `geopandas`, `pyproj`, `h5py`) depend on system libraries such as GDAL, PROJ, and HDF5. On Linux, install these via your package manager first (e.g. `apt install gdal-bin libgdal-dev proj-bin libhdf5-dev` on Debian/Ubuntu) if the pip install fails to build them.
+- `gurobipy`, `mosek`, and `xpress` are commercial solvers included as dependencies. The packages will install, but you'll need valid licenses to use them.
+
+
+## Setup and Configuration
 The BikeZ-ETH dataset configuration settings are summarized in the `BikeZ_Config` dataclass in `_constant.py` file.
 
 **Change the root path of the data directory, i.e. the variables `dir_root` and `data_root`.**
@@ -22,26 +67,26 @@ class BikeZ_Config:
 
 This is a summary of the available files.
 
-| Date       | Intersection | Code | Timeslot                                                   | Street(s)                                                        |
-|------------|--------------|------|------------------------------------------------------------|------------------------------------------------------------------|
-| 2025-06-16 | D1           | A    | AM1, AM2, AM3, AM4, AM5, AM6, PM1, PM2, PM3, PM4, PM5, PM6 | Langstrasse – Zollstrasse – Röntgenstrasse                       |
-| 2025-06-16 | D2           | G    | AM1, AM2, AM3, AM4, AM5, AM6                               | Zollstrasse – Ackerstrasse – Mattengasse                         |
-| 2025-06-16 | D2           | C    | PM1, PM2, PM3, PM4, PM5, PM6                               | Zollstrasse – Ackerstrasse – Mattengasse                         |
-| 2025-06-16 | D3           | E    | AM1, AM2, AM3, AM4, AM5, AM6, PM1, PM2, PM3, PM4, PM5, PM6 | Kasernenstrasse – Lagerstrasse – Gessnerbrücke                   |
-| 2025-06-16 | D4           | F    | AM1, AM2, AM3, AM4, AM5, AM6, PM1, PM2, PM3, PM4, PM5, PM6 | Gessnerbrücke – Gessnerallee – Usteristrasse                     |
-| 2025-06-17 | D1           | A    | AM1, AM2, AM3, AM4, AM5, AM6                               | Langstrasse – Zollstrasse – Röntgenstrasse                       |
-| 2025-06-17 | D1           | B    | PM1, PM2, PM3, PM4, PM5, PM6                               | Langstrasse – Zollstrasse – Röntgenstrasse                       |
-| 2025-06-17 | D2           | C    | AM1, AM2, AM3, AM4, AM5, AM6, PM1, PM2, PM3, PM4, PM5, PM6 | Zollstrasse – Ackerstrasse – Mattengasse                         |
-| 2025-06-17 | D3           | E    | AM1, AM2, AM3, AM4, AM5, AM6, PM1, PM2, PM3, PM4, PM5, PM6 | Kasernenstrasse – Lagerstrasse – Gessnerbrücke                   |
-| 2025-06-17 | D4           | F    | AM1, AM2, AM3, AM4, AM5, AM6, PM1, PM2, PM3, PM4, PM5, PM6 | Gessnerbrücke – Gessnerallee – Usteristrasse                     |
-| 2025-09-29 | D1           | A    | AM1, AM2, AM3, AM4, AM5, AM6                               | Quaibrücke - Bürkliplatz                                         |
-| 2025-09-29 | D1           | C    | PM1, PM2, PM3, PM4, PM5, PM6                               | Duttweilerbrücke – Hohlstrasse – Herdernstrasse                  |
-| 2025-09-29 | D2           | B    | AM1, AM2, AM3, AM4, AM5, AM6                               | Bullingerplatz                                                   |
-| 2025-09-29 | D2           | E    | PM1, PM2, PM3, PM4, PM5, PM6                               | Herdernstrasse – Bullingerstrasse – Baslerstrasse                |
-| 2025-09-30 | D1           | G    | AM1, AM2, AM3, AM4, AM5, AM6                               | Birmensdorferstrasse – Schweighofstrasse – Schaufelbergerstrasse |
-| 2025-09-30 | D1           | H    | PM1, PM2, PM3                                              | Baslerstrasse – Freihofstrasse                                   |
-| 2025-09-30 | D2           | F    | AM1, AM2, AM3, AM4, AM5, AM6                               | Birmensdorferstrasse – Gutstrasse – Talwiesenstrasse             |
-| 2025-09-30 | D2           | I    | PM1, PM2, PM3                                              | Baslerstrasse – Flurstrasse                                      |
+| Date       | Intersection | Code | Timeslot                                                   | Street(s)                                                        | Location Number |
+|------------|--------------|------|------------------------------------------------------------|------------------------------------------------------------------|-----------------|
+| 2025-06-16 | D1           | A    | AM1, AM2, AM3, AM4, AM5, AM6, PM1, PM2, PM3, PM4, PM5, PM6 | Langstrasse – Zollstrasse – Röntgenstrasse                       | 4               |
+| 2025-06-16 | D2           | G    | AM1, AM2, AM3, AM4, AM5, AM6                               | Zollstrasse – Ackerstrasse – Mattengasse                         | 5               |
+| 2025-06-16 | D2           | C    | PM1, PM2, PM3, PM4, PM5, PM6                               | Zollstrasse – Ackerstrasse – Mattengasse                         | 5               |
+| 2025-06-16 | D3           | E    | AM1, AM2, AM3, AM4, AM5, AM6, PM1, PM2, PM3, PM4, PM5, PM6 | Kasernenstrasse – Lagerstrasse – Gessnerbrücke                   | 2               |
+| 2025-06-16 | D4           | F    | AM1, AM2, AM3, AM4, AM5, AM6, PM1, PM2, PM3, PM4, PM5, PM6 | Gessnerbrücke – Gessnerallee – Usteristrasse                     | 3               |
+| 2025-06-17 | D1           | A    | AM1, AM2, AM3, AM4, AM5, AM6                               | Langstrasse – Zollstrasse – Röntgenstrasse                       | 4               |
+| 2025-06-17 | D1           | B    | PM1, PM2, PM3, PM4, PM5, PM6                               | Langstrasse – Zollstrasse – Röntgenstrasse                       | 4               |
+| 2025-06-17 | D2           | C    | AM1, AM2, AM3, AM4, AM5, AM6, PM1, PM2, PM3, PM4, PM5, PM6 | Zollstrasse – Ackerstrasse – Mattengasse                         | 5               |
+| 2025-06-17 | D3           | E    | AM1, AM2, AM3, AM4, AM5, AM6, PM1, PM2, PM3, PM4, PM5, PM6 | Kasernenstrasse – Lagerstrasse – Gessnerbrücke                   | 2               |
+| 2025-06-17 | D4           | F    | AM1, AM2, AM3, AM4, AM5, AM6, PM1, PM2, PM3, PM4, PM5, PM6 | Gessnerbrücke – Gessnerallee – Usteristrasse                     | 3               |
+| 2025-09-29 | D1           | A    | AM1, AM2, AM3, AM4, AM5, AM6                               | Quaibrücke - Bürkliplatz                                         | 6               |
+| 2025-09-29 | D1           | C    | PM1, PM2, PM3, PM4, PM5, PM6                               | Duttweilerbrücke – Hohlstrasse – Herdernstrasse                  | 8               |
+| 2025-09-29 | D2           | B    | AM1, AM2, AM3, AM4, AM5, AM6                               | Bullingerplatz                                                   | 7               |
+| 2025-09-29 | D2           | E    | PM1, PM2, PM3, PM4, PM5, PM6                               | Herdernstrasse – Bullingerstrasse – Baslerstrasse                | 9               |
+| 2025-09-30 | D1           | G    | AM1, AM2, AM3, AM4, AM5, AM6                               | Birmensdorferstrasse – Schweighofstrasse – Schaufelbergerstrasse | 11              |
+| 2025-09-30 | D1           | H    | PM1, PM2, PM3                                              | Baslerstrasse – Freihofstrasse                                   | 12              |
+| 2025-09-30 | D2           | F    | AM1, AM2, AM3, AM4, AM5, AM6                               | Birmensdorferstrasse – Gutstrasse – Talwiesenstrasse             | 10              |
+| 2025-09-30 | D2           | I    | PM1, PM2, PM3                                              | Baslerstrasse – Flurstrasse                                      | 13              |
 ---
 
 
