@@ -319,16 +319,16 @@ History points fade to low opacity so the current frame remains visually dominan
 **Usage**
 
 ```bash
-python generate_timestamped_map.py %DATE% %INTERSECTION% %CODE% %TIMESLOT% %SUBSAMPLED_FLAG%
+python generate_timestamped_map.py %DATE% %INTERSECTION% %CODE% %TIMESLOT% %SUBSAMPLED_FLAG% %HISTORY_LENGTH%
 
 # Example
-python generate_timestamped_map.py 2025-06-16 D3 E AM1 True
+python generate_timestamped_map.py 2025-06-16 D3 E AM1 True 1
 ```
-
-If `%SUBSAMPLED_FLAG%` is `True`, the subsampled data root directory needs to be updated accordingly in `generate_timestamped_map.py`.
-```python
-subsampled_data_root = "/usr/path/to/BikeZ-Subsampled/"    # <-- CHANGE HERE -->
-```
+- `%HISTORY_LENGTH%` (integer): Number of history seconds to display behind each point's current position. `0` shows only the current position for each bike/vehicle, with no trailing history. `1`, `2`, etc. extend how many preceding seconds of trajectory remain visible at each frame.
+- If `%SUBSAMPLED_FLAG%` is `True`, the subsampled data root directory needs to be updated accordingly in `generate_timestamped_map.py`.
+    ```python
+    subsampled_data_root = "/usr/path/to/BikeZ-Subsampled/"    # <-- CHANGE HERE -->
+    ```
 
 Output is saved to `../maps/timestamped_trajectories_ALL_map_<date>_<intersection>_<timeslot>_<code>.html`.
 

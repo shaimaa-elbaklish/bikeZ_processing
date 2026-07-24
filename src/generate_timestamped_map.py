@@ -33,11 +33,13 @@ from tools_map_visualization import create_swisstopo_map
 BikeZ_Config = BikeZ_Config()
 
 parser = argparse.ArgumentParser(description="Timestamped Map Visualization for BikeZ trajectories")
-parser.add_argument("date",          type=str, help="Date string, e.g. 2025-06-16")
-parser.add_argument("intersection",  type=str, help="Intersection ID, e.g. D3")
-parser.add_argument("code",          type=str, help="Code letter, e.g. E")
-parser.add_argument("timeslot",      type=str, help="Timeslot, e.g. AM1")
-parser.add_argument("is_subsampled", type=str, help="Which files to use: True or False")
+parser.add_argument("date",           type=str, help="Date string, e.g. 2025-06-16")
+parser.add_argument("intersection",   type=str, help="Intersection ID, e.g. D3")
+parser.add_argument("code",           type=str, help="Code letter, e.g. E")
+parser.add_argument("timeslot",       type=str, help="Timeslot, e.g. AM1")
+parser.add_argument("is_subsampled",  type=str, help="Which files to use: True or False")
+parser.add_argument("history_length", type=int, nargs='?', default=0,
+                     help="Number of history seconds to show (0 = current position only), must be integer")
 args = parser.parse_args()
 
 date         = args.date
@@ -45,6 +47,8 @@ intersection = args.intersection
 code         = args.code
 timeslot     = args.timeslot
 SUBSAMPLED   = args.is_subsampled.lower() == "true"
+history_len  = args.history_length
+history_len  = int(max(0, history_len))
 
 campaign  = f"Zurich_2025{date[5:7]}"
 subsampled_data_root = "C:/Users/ShaimaaElBaklish/OneDrive - ETH Zurich/BikeZ-Subsampled/"
@@ -68,6 +72,10 @@ if SUBSAMPLED:
     filename = f"location_{loc_num}/{loc_num}_{mode}s_{date}_{timeslot}.csv"
     df_veh = pd.read_csv(subsampled_data_root + filename)
     df_veh['datetime'] = pd.to_datetime(df_veh['datetime'], format='ISO8601')
+    
+    if history_len == 0:
+        df_bik['datetime'] = df_bik['datetime'].dt.round('100ms')
+        df_veh['datetime'] = df_veh['datetime'].dt.round('100ms')
 else:
     mode = BikeZ_Config.avail_modes[0] # Bike
     data_root = BikeZ_Config.data_root[campaign][mode]
@@ -92,10 +100,17 @@ else:
     df_veh["lon_ekf"], df_veh["lat_ekf"] = transformer.transform(df_veh["x_act_ekf"].values, df_veh["y_act_ekf"].values)
 
 
+# start_time = df_bik['datetime'].min()
+# end_time = start_time + pd.Timedelta(seconds=10)
+# df_bik = df_bik[(df_bik['datetime'] >= start_time) & (df_bik['datetime'] < end_time)]
+# df_veh = df_veh[(df_veh['datetime'] >= start_time) & (df_veh['datetime'] < end_time)]
+
+
 # #############################################################################
 # MAIN: Create Map
 # #############################################################################
 m = create_swisstopo_map(center_lat=center_lat, center_lon=center_lon, add_layer_control=False)
+
 
 features = []
 
@@ -109,12 +124,12 @@ for bike_id, grp in df_bik.groupby("veh_id"):
                 "coordinates": [row["lon_ekf"], row["lat_ekf"]],
             },
             "properties": {
-                "time": row["datetime"].strftime("%Y-%m-%dT%H:%M:%S"),
-                "popup": f"{row['veh_type']} {bike_id}",
+                "time": row["datetime"].strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3],
+                "popup": f"{row['veh_type']} {bike_id} - {row['datetime'].strftime('%H:%M:%S.%f')[:-3]}",
                 "icon": "circle",
                 "iconstyle": {
                     "fillColor": "blue",
-                    "fillOpacity": 0.8,
+                    "fillOpacity": 0.6 if history_len > 0 else 0.8,
                     "stroke": "false",
                     "radius": 3
                 }
@@ -131,12 +146,12 @@ for veh_id, grp in df_veh.groupby("veh_id"):
                 "coordinates": [row["lon_ekf"], row["lat_ekf"]],
             },
             "properties": {
-                "time": row["datetime"].strftime("%Y-%m-%dT%H:%M:%S"),
-                "popup": f"{row['veh_type']} {veh_id}",
+                "time": row["datetime"].strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3],
+                "popup": f"{row['veh_type']} {veh_id} - {row['datetime'].strftime('%H:%M:%S.%f')[:-3]}",
                 "icon": "circle",
                 "iconstyle": {
                     "fillColor": "red",
-                    "fillOpacity": 0.6,
+                    "fillOpacity": 0.4 if history_len > 0 else 0.6,
                     "stroke": "false",
                     "radius": 5
                 }
@@ -151,10 +166,11 @@ TimestampedGeoJson(
         "features": features,
     },
     period="PT1S",
-    duration="PT1S",
+    duration=f"PT{history_len}S",
     transition_time=40,
     loop=False,
 ).add_to(m)
+
 
 # 2. CSS/JavaScript fix — preserves per-feature fill color on history points
 css = """
@@ -162,40 +178,40 @@ css = """
 .leaflet-zoom-animated path.leaflet-interactive[fill="blue"] {
     stroke: blue !important;
     fill: blue !important;
-    fill-opacity: 0.15 !important;
-    stroke-opacity: 0.15 !important;
     stroke-width: 1px !important;
 }
 .leaflet-zoom-animated path.leaflet-interactive[fill="red"] {
     stroke: red !important;
     fill: red !important;
-    fill-opacity: 0.15 !important;
-    stroke-opacity: 0.15 !important;
     stroke-width: 1px !important;
 }
 </style>
 """
 m.get_root().html.add_child(folium.Element(css))
-js_fix = """
-<script>
-document.addEventListener("DOMContentLoaded", function () {
-    // Poll until the map renders, then shrink history point radii
-    var interval = setInterval(function () {
-        var paths = document.querySelectorAll(
-            '.leaflet-zoom-animated path.leaflet-interactive[fill="blue"], ' +
-            '.leaflet-zoom-animated path.leaflet-interactive[fill="red"]'
-        );
-        paths.forEach(function (p) {
-            // Only shrink history points (low opacity), not active dots
-            var opacity = parseFloat(p.getAttribute('fill-opacity') || 1);
-            if (opacity < 0.5) {
-                p.setAttribute('r', '1.5');
-            }
-        });
-    }, 100);  // check every 100ms as animation runs
-});
-</script>
-"""
-m.get_root().html.add_child(folium.Element(js_fix))
+    # fill-opacity: 0.15 !important;
+    # stroke-opacity: 0.15 !important;
 
-m.save(f"../maps/timestamped_trajectories_ALL_map_{date}_{intersection}_{timeslot}_{code}.html")
+# js_fix = """
+# <script>
+# document.addEventListener("DOMContentLoaded", function () {
+#     // Poll until the map renders, then shrink history point radii
+#     var interval = setInterval(function () {
+#         var paths = document.querySelectorAll(
+#             '.leaflet-zoom-animated path.leaflet-interactive[fill="blue"], ' +
+#             '.leaflet-zoom-animated path.leaflet-interactive[fill="red"]'
+#         );
+#         paths.forEach(function (p) {
+#             // Only shrink history points (low opacity), not active dots
+#             var opacity = parseFloat(p.getAttribute('fill-opacity') || 1);
+#             if (opacity < 0.5) {
+#                 p.setAttribute('r', '1.5');
+#             }
+#         });
+#     }, 100);  // check every 100ms as animation runs
+# });
+# </script>
+# """
+# m.get_root().html.add_child(folium.Element(js_fix))
+
+
+m.save(f"../maps/timestamped_trajectories_ALL_map_{date}_{intersection}_{timeslot}_{code}_history{history_len}s.html")
