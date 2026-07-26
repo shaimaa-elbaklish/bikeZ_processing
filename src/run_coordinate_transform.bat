@@ -1,6 +1,6 @@
 @echo off
 
-set VEH_TYPE=bike
+set VEH_TYPE=vehicle
 set DEBUG_FLAG=True
 set SUBSAMPLED_FLAG=False
 
