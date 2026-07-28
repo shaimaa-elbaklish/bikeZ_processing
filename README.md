@@ -1,4 +1,4 @@
-# BikeZ-ETH Analysis
+# BikeZ-ETH Processing
 
 ## Table of Contents
 
