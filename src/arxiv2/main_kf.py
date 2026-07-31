@@ -148,6 +148,41 @@ else:
 filt_df.to_parquet(data_root + f"{date}/{intersection}/{filename}.parquet", compression='zstd', index=False)
 
 
+# filename = f"trajectories_bikes_{date}_{intersection}_{time_slot}_{code}-1-ekf.csv"
+# filt_df = pd.read_csv(data_root + f"{date}/{intersection}/{filename}")
+# unique_ids = df['veh_id'].unique()
+
+# # oveview of trajectories
+# fig, axs = plt.subplots(1, 2, figsize=(8, 4))
+# for veh_id in unique_ids:
+#     veh_df = df[(df['veh_id'] == veh_id)].copy()  # (~df['missing']) &
+#     veh_df.loc[veh_df['missing'], 'x'] = pd.NA
+#     veh_df.loc[veh_df['missing'], 'y'] = pd.NA
+#     # axs[0].scatter(veh_df['x'], veh_df['y'], s=1, color='b')
+#     axs[0].plot(veh_df['x'], veh_df['y'], color='b')
+
+#     veh_df = filt_df[filt_df['veh_id'] == veh_id]
+#     if veh_df[['x_ekf', 'y_ekf', 'speed_ekf', 'angle_ekf']].isna().any().any():
+#         print(veh_id)
+#         sys.exit(1)
+#     # axs[1].scatter(veh_df['x_ekf'], veh_df['y_ekf'], s=1, color='b')
+#     axs[1].plot(veh_df['x_ekf'], veh_df['y_ekf'], color='b')
+
+# axs[0].set_xlabel('X_2056 - X_ref [m]')
+# axs[0].set_ylabel('Y_2056 - Y_ref [m]')
+# axs[0].set_xlim([10, 150])
+# axs[0].set_ylim([10, 125])
+# axs[0].set_title('Original')
+
+# axs[1].set_xlabel('X_2056 - X_ref [m]')
+# axs[1].set_ylabel('Y_2056 - Y_ref [m]')
+# axs[1].set_xlim([10, 150])
+# axs[1].set_ylim([10, 125])
+# axs[1].set_title('EKF')
+
+# fig.tight_layout()
+# plt.show()
+
 # Get some statistics
 mae_x = np.nanmean(abs(filt_df.loc[(
     ~filt_df['missing']), 'x'] - filt_df.loc[(~filt_df['missing']), 'x_ekf']))

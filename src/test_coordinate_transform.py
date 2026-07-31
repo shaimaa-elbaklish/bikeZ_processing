@@ -47,10 +47,11 @@ Y_2056_offset = XY_2056_Bounds[1][0]
 # #############################################################################
 # trajectories after EKF
 if mode == "bike":
-    filename = f"trajectories_bikes_{date}_{intersection}_{timeslot}_{code}-1-ekf.csv"
+    filename = f"trajectories_bikes_{date}_{intersection}_{timeslot}_{code}-1-ekf"
 else:
-    filename = f"trajectories_vehicles_{date}_{intersection}_{timeslot}_{code}-1-ekf.csv"
-df = pd.read_csv(data_root + f"{date}/{intersection}/{filename}")
+    filename = f"trajectories_vehicles_{date}_{intersection}_{timeslot}_{code}-1-ekf"
+# df = pd.read_csv(data_root + f"{date}/{intersection}/{filename}.csv")
+df = pd.read_parquet(data_root + f"{date}/{intersection}/{filename}.parquet")
 df = df.dropna()
 df['x_act_ekf'] = df['x_ekf'] + X_2056_offset
 df['y_act_ekf'] = df['y_ekf'] + Y_2056_offset

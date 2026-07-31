@@ -22,6 +22,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 
 from _constants import BikeZ_Config
+from tools_utils import extract_all_gaps
 
 # #############################################################################
 # CONSTANTS
@@ -29,18 +30,19 @@ from _constants import BikeZ_Config
 # Configuration
 BikeZ_Config = BikeZ_Config()
 
-# Specify Trajectory File
-# date = BikeZ_Config.avail_dates[2]
-# campaign = f"Zurich_2025{date[5:7]}" # June or September
-# mode = BikeZ_Config.avail_modes[0] # Bike
-# data_root = BikeZ_Config.data_root[campaign][mode]
-
-# intersection, code = BikeZ_Config.avail_intersections[date][2]
-# all_timeslots = BikeZ_Config.avail_timeslots[date][(intersection, code)]
-# timeslot = BikeZ_Config.avail_timeslots[date][(intersection, code)][0] # 'AM1' or 'PM1
-
-# XY_2056_Bounds = BikeZ_Config.XY_2056_Bounds[date][(intersection, code)]
-
+# ── global font sizes ─────────────────────────────────────────────────────────
+FS_TITLE   = 13   # subplot titles
+FS_LABEL   = 12   # axis labels
+FS_ANNOT   = 12   # annotations
+FS_TICK    = 10   # axis tick labels
+FS_LEGEND  = 10   # legend entries
+plt.rcParams.update({
+    'axes.labelsize': FS_LABEL, 
+    'axes.titlesize': FS_TITLE,
+    'legend.fontsize': FS_LEGEND, 
+    'xtick.labelsize': FS_TICK, 
+    'ytick.labelsize': FS_TICK,
+})
 
 # #############################################################################
 # FIGURE 1: Distribution of gaps
@@ -65,42 +67,46 @@ for mode in BikeZ_Config.avail_modes:
                 ref_time = df.loc[(df['datetime'] == ref_datetime) & (df['time'] >= 0), 'time'].unique()[0]
                 df['time'] = df['datetime'].apply(lambda x: np.round((x - ref_datetime).total_seconds() + ref_time, decimals=3))
                 df = df.sort_values(by=['veh_id', 'time'], ascending=True)
+                if df.missing.any():
+                    gaps_df = extract_all_gaps(df)
+                else:
+                    gaps_df = pd.DataFrame(columns=['veh_id', 'start_time', 'end_time', 'n_points', 'duration'])
                 
-                # Group consecutive missing rows into gaps per vehicle
-                gap_records = []
-                for veh_id, veh_df in df.groupby('veh_id'):
-                    missing = veh_df['missing'].values
-                    times = veh_df['time'].values
+                # # Group consecutive missing rows into gaps per vehicle
+                # gap_records = []
+                # for veh_id, veh_df in df.groupby('veh_id'):
+                #     missing = veh_df['missing'].values
+                #     times = veh_df['time'].values
                     
-                    in_gap = False
-                    gap_start = None
-                    for i, m in enumerate(missing):
-                        if m and not in_gap:
-                            in_gap = True
-                            gap_start = i
-                        elif not m and in_gap:
-                            gap_len = i - gap_start  # number of missing frames
-                            gap_duration = times[i] - times[gap_start]  # seconds
-                            gap_records.append({
-                                'veh_id': veh_id,
-                                'gap_start_idx': gap_start,
-                                'gap_len_frames': gap_len,
-                                'gap_duration_s': gap_duration
-                            })
-                            in_gap = False
+                #     in_gap = False
+                #     gap_start = None
+                #     for i, m in enumerate(missing):
+                #         if m and not in_gap:
+                #             in_gap = True
+                #             gap_start = i
+                #         elif not m and in_gap:
+                #             gap_len = i - gap_start  # number of missing frames
+                #             gap_duration = times[i] - times[gap_start]  # seconds
+                #             gap_records.append({
+                #                 'veh_id': veh_id,
+                #                 'gap_start_idx': gap_start,
+                #                 'gap_len_frames': gap_len,
+                #                 'gap_duration_s': gap_duration
+                #             })
+                #             in_gap = False
                     
-                    # Handle gap that runs to end of trajectory
-                    if in_gap:
-                        gap_len = len(missing) - gap_start
-                        gap_duration = times[-1] - times[gap_start]
-                        gap_records.append({
-                            'veh_id': veh_id,
-                            'gap_start_idx': gap_start,
-                            'gap_len_frames': gap_len,
-                            'gap_duration_s': gap_duration
-                        })
+                #     # Handle gap that runs to end of trajectory
+                #     if in_gap:
+                #         gap_len = len(missing) - gap_start
+                #         gap_duration = times[-1] - times[gap_start]
+                #         gap_records.append({
+                #             'veh_id': veh_id,
+                #             'gap_start_idx': gap_start,
+                #             'gap_len_frames': gap_len,
+                #             'gap_duration_s': gap_duration
+                #         })
                 
-                gaps_df = pd.DataFrame(gap_records)
+                # gaps_df = pd.DataFrame(gap_records)
                 gaps_df['mode'] = mode
                 gaps_df['date'] = date
                 gaps_df['intersection'] = intersection
@@ -121,7 +127,7 @@ for mode in BikeZ_Config.avail_modes:
                 gc.collect()
 
 gap_nums_df = pd.DataFrame(gap_nums_df)
-print(all_gaps_df['gap_duration_s'].describe())
+print(all_gaps_df['duration'].describe())
 
 sys.exit(1)
 
@@ -132,16 +138,6 @@ gap_nums_df['location_num'] = gap_nums_df.apply(
     lambda r: BikeZ_Config.location_map.get((r['date'][5:7], r['intersection'], r['code'])), axis=1
 )
 
-# # --- Shared label ---
-# all_gaps_df['loc_date'] = (
-#     all_gaps_df['date'].astype(str).str[5:] + '\n' +
-#     all_gaps_df['intersection'].astype(str)
-# )
-# gap_nums_df['loc_date'] = (
-#     gap_nums_df['date'].astype(str).str[5:] + '\n' +
-#     gap_nums_df['intersection'].astype(str)
-# )
-
 locations = sorted(all_gaps_df['location_num'].unique())
 x = np.arange(len(locations))
 colors = {'bike': '#2196F3', 'vehicle': '#FF7043'}
@@ -151,19 +147,11 @@ width = 0.35
 # --- Step 2: Plot Gap Distributions ---
 fig, axes = plt.subplots(1, 2, figsize=(10, 4))
 
-# ── global font sizes ─────────────────────────────────────────────────────────
-FS_TITLE   = 13   # subplot titles
-FS_LABEL   = 12   # axis labels
-FS_ANNOT   = 12   # annotations
-FS_TICK    = 10   # axis tick labels
-FS_LEGEND  = 10   # legend entries
-
-
 # LEFT: Boxplot — bike gap duration only
 ax = axes[0]
 bike_data = [
     all_gaps_df[(all_gaps_df['location_num'] == loc) &
-                (all_gaps_df['mode'] == 'bike')]['gap_duration_s'].dropna().values
+                (all_gaps_df['mode'] == 'bike')]['duration'].dropna().values
     for loc in locations
 ]
 bp = ax.boxplot(
@@ -184,7 +172,7 @@ ax.set_xlabel('Location', fontsize=FS_LABEL)
 ax.set_ylabel('Gap Duration [s]', fontsize=FS_LABEL)
 ax.set_title('Gap Duration Distribution\n(Bicycles only)', fontsize=FS_TITLE)
 ax.tick_params(axis='both', labelsize=FS_TICK)
-ax.grid(axis='y', alpha=0.3)
+# ax.grid(axis='y', alpha=0.3)
 
 # RIGHT: Bar chart — frequency of vehicles with gaps (mean + std), both modes
 ax = axes[1]
@@ -229,13 +217,13 @@ ax.set_title('Frequency of Entities with Gaps\n(Bike vs. Vehicle)', fontsize=FS_
 ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda y, _: f'{y:.0%}'))
 ax.tick_params(axis='both', labelsize=FS_TICK)
 ax.legend(fontsize=FS_LEGEND)
-ax.grid(axis='y', alpha=0.3)
+# ax.grid(axis='y', alpha=0.3)
 
 fig.tight_layout()
 fig.savefig("../figures/Gaps_Distribution.pdf", dpi=300, bbox_inches='tight')
 fig.savefig("../figures/Gaps_Distribution.png", dpi=300, bbox_inches='tight')
 plt.show()
-
+sys.exit(1)
 
 # #############################################################################
 # FIGURE 2: EKF results representative case
@@ -254,8 +242,9 @@ XY_2056_Bounds = BikeZ_Config.XY_2056_Bounds[date][(intersection, code)]
 X_2056_offset = XY_2056_Bounds[0][0]
 Y_2056_offset = XY_2056_Bounds[1][0]
 
-filename = f"trajectories_{mode}s_{date}_{intersection}_{timeslot}_{code}-1-ekf.csv"
-df = pd.read_csv(data_root + f"{date}/{intersection}/{filename}")
+filename = f"trajectories_{mode}s_{date}_{intersection}_{timeslot}_{code}-1-ekf"
+# df = pd.read_csv(data_root + f"{date}/{intersection}/{filename}.csv")
+df = pd.read_parquet(data_root + f"{date}/{intersection}/{filename}.parquet")
 
 # --- Step 1: Get most interesting bike with long gaps ---
 gap_records = []
@@ -383,7 +372,7 @@ if len(gaps) > 0:
     axins.set_ylim(y_min, y_max)
     axins.set_aspect('equal')
     axins.tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
-    axins.grid(True, alpha=0.3)
+    # axins.grid(True, alpha=0.3)
     for spine in axins.spines.values():
         spine.set_edgecolor('black')
         spine.set_linewidth(0.8)
@@ -393,7 +382,7 @@ if len(gaps) > 0:
 ax.set_xlabel('x [m]', fontsize=FS_LABEL)
 ax.set_ylabel('y [m]', fontsize=FS_LABEL)
 ax.tick_params(axis='both', labelsize=FS_TICK)
-ax.grid(True, alpha=0.3)
+# ax.grid(True, alpha=0.3)
 # ax.spines['top'].set_visible(False)
 # ax.spines['right'].set_visible(False)
 # ax.set_ylim([59, 95])
@@ -438,7 +427,7 @@ for i, (_, gap) in enumerate(gaps.iterrows()):
 ax2.set_xlabel('Time [s]', fontsize=FS_LABEL)
 ax2.set_ylabel('Speed [m/s]', fontsize=FS_LABEL)
 ax2.tick_params(axis='both', labelsize=FS_TICK)
-ax2.grid(True, alpha=0.3)
+# ax2.grid(True, alpha=0.3)
 # ax2.spines['top'].set_visible(False)
 ax2.set_ylim([0, 10])
  

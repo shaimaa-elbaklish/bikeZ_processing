@@ -10,6 +10,7 @@ Authors : ETH Zürich IVT
 # IMPORTS
 # =============================================================================
 import numpy as np
+import pandas as pd
 import matplotlib as mpl
 import matplotlib.cm as cm
 import matplotlib.colors as mcolors
@@ -326,3 +327,66 @@ def add_turn_centerline_plotly(fig, geometry_store, segment_registry,
                 except Exception:
                     pass
     return fig, turn_colors
+
+
+# =============================================================================
+# EXTRACT ALL MISSING GAPS
+# =============================================================================
+def extract_all_gaps(veh_df, include_datetime=False):
+    df = veh_df.sort_values(['veh_id', 'time']).reset_index(drop=True)
+    n = len(df)
+
+    veh_id = df['veh_id'].to_numpy()
+    time = df['time'].to_numpy()
+    missing = df['missing'].to_numpy()
+
+    new_block = (veh_id != np.roll(veh_id, 1)) | (missing != np.roll(missing, 1))
+    new_block[0] = True
+    block_id = np.cumsum(new_block)
+
+    # restrict to missing rows only
+    mblock = block_id[missing]
+    midx = np.flatnonzero(missing)          # positions of missing rows in df
+    mveh = veh_id[missing]
+
+    # find block boundaries via first/last occurrence per block_id (blocks are contiguous)
+    # since rows are sorted and blocks contiguous, boundaries = where mblock changes
+    boundary_start = np.r_[True, mblock[1:] != mblock[:-1]]
+    boundary_end = np.r_[mblock[1:] != mblock[:-1], True]
+
+    start_idx = midx[boundary_start]          # first row-index of each gap block
+    end_idx = midx[boundary_end]               # last row-index of each gap block
+    block_veh = mveh[boundary_start]
+    n_points = np.diff(np.flatnonzero(np.r_[boundary_start, True]))  # count per block
+
+    # candidate neighbor indices
+    prev_idx = start_idx - 1
+    next_idx = end_idx + 1
+
+    prev_valid = (prev_idx >= 0)
+    prev_valid[prev_valid] &= (veh_id[prev_idx[prev_valid]] == block_veh[prev_valid])
+    prev_valid[prev_valid] &= (~missing[prev_idx[prev_valid]])
+
+    next_valid = (next_idx < n)
+    next_valid[next_valid] &= (veh_id[next_idx[next_valid]] == block_veh[next_valid])
+    next_valid[next_valid] &= (~missing[next_idx[next_valid]])
+
+    start_time = np.where(prev_valid, time[np.clip(prev_idx, 0, n - 1)], time[start_idx])
+    end_time = np.where(next_valid, time[np.clip(next_idx, 0, n - 1)], time[end_idx])
+
+    gaps = pd.DataFrame({
+        'veh_id': block_veh,
+        'start_time': start_time,
+        'end_time': end_time,
+        'n_points': n_points,
+        'duration': end_time - start_time,
+    })
+    
+    if include_datetime:
+        dt = df['datetime'].to_numpy()
+        start_datetime = np.where(prev_valid, dt[np.clip(prev_idx, 0, n - 1)], dt[start_idx])
+        end_datetime = np.where(next_valid, dt[np.clip(next_idx, 0, n - 1)], dt[end_idx])
+        gaps['start_datetime'] = start_datetime
+        gaps['end_datetime'] = end_datetime
+    
+    return gaps

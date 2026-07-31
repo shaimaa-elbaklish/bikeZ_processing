@@ -30,14 +30,14 @@ from tools_kalman import calculate_kalman_filtered_trajectory
 BikeZ_Config = BikeZ_Config()
 
 # Specify Trajectory File
-date = BikeZ_Config.avail_dates[-1]
+date = BikeZ_Config.avail_dates[0]
 campaign = f"Zurich_2025{date[5:7]}" # June or September
 mode = BikeZ_Config.avail_modes[0] # Bike
 data_root = BikeZ_Config.data_root[campaign][mode]
 
-intersection, code = BikeZ_Config.avail_intersections[date][-1]
+intersection, code = BikeZ_Config.avail_intersections[date][0]
 # all_timeslots = BikeZ_Config.avail_timeslots[date][(intersection, code)]
-timeslot = BikeZ_Config.avail_timeslots[date][(intersection, code)][1] # 'AM2'
+timeslot = BikeZ_Config.avail_timeslots[date][(intersection, code)][0] # 'AM2'
 
 XY_2056_Bounds = BikeZ_Config.XY_2056_Bounds[date][(intersection, code)]
 X_2056_offset = XY_2056_Bounds[0][0]
@@ -114,7 +114,7 @@ for veh_id, veh_df in df.groupby('veh_id'):
 # top2 = counts.nlargest(2)
 # turning bikes: 68, (missing) 14
 
-sel_bike_id = 242
+sel_bike_id = 137
 bike_df = df[(df['veh_id'] == sel_bike_id)]
 bike_df = bike_df.sort_values(by='time', ascending=True)
 

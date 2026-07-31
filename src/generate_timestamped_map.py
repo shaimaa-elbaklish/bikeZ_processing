@@ -79,10 +79,11 @@ if SUBSAMPLED:
 else:
     mode = BikeZ_Config.avail_modes[0] # Bike
     data_root = BikeZ_Config.data_root[campaign][mode]
-    filename = f"trajectories_bikes_{date}_{intersection}_{timeslot}_{code}-1-ekf.csv"
-    df_bik = pd.read_csv(data_root + f"{date}/{intersection}/{filename}")
+    filename = f"trajectories_bikes_{date}_{intersection}_{timeslot}_{code}-1-ekf"
+    # df_bik = pd.read_csv(data_root + f"{date}/{intersection}/{filename}.csv")
+    # df_bik['datetime'] = pd.to_datetime(df_bik['datetime'], format='ISO8601')
+    df_bik = pd.read_parquet(data_root + f"{date}/{intersection}/{filename}.parquet")
     df_bik = df_bik.dropna()
-    df_bik['datetime'] = pd.to_datetime(df_bik['datetime'], format='ISO8601')
     df_bik['x_act_ekf'] = df_bik['x_ekf'] + X_2056_offset
     df_bik['y_act_ekf'] = df_bik['y_ekf'] + Y_2056_offset
     transformer = Transformer.from_crs("EPSG:2056", "EPSG:4326", always_xy=True)
@@ -91,10 +92,11 @@ else:
     
     mode = BikeZ_Config.avail_modes[1] # Vehicle
     data_root = BikeZ_Config.data_root[campaign][mode]
-    filename = f"trajectories_vehicles_{date}_{intersection}_{timeslot}_{code}-1-ekf.csv"
-    df_veh = pd.read_csv(data_root + f"{date}/{intersection}/{filename}")
+    filename = f"trajectories_vehicles_{date}_{intersection}_{timeslot}_{code}-1-ekf"
+    # df_veh = pd.read_csv(data_root + f"{date}/{intersection}/{filename}.csv")
+    # df_veh['datetime'] = pd.to_datetime(df_veh['datetime'], format='ISO8601')
+    df_veh = pd.read_parquet(data_root + f"{date}/{intersection}/{filename}.parquet")
     df_veh = df_veh.dropna()
-    df_veh['datetime'] = pd.to_datetime(df_veh['datetime'], format='ISO8601')
     df_veh['x_act_ekf'] = df_veh['x_ekf'] + X_2056_offset
     df_veh['y_act_ekf'] = df_veh['y_ekf'] + Y_2056_offset
     df_veh["lon_ekf"], df_veh["lat_ekf"] = transformer.transform(df_veh["x_act_ekf"].values, df_veh["y_act_ekf"].values)

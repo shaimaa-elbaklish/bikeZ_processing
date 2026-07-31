@@ -74,10 +74,11 @@ if SUBSAMPLED:
     df = pd.read_csv(subsampled_data_root + filename)
 else:
     if mode == "bike":
-        filename = f"trajectories_bikes_{date}_{intersection}_{timeslot}_{code}-1-ekf.csv"
+        filename = f"trajectories_bikes_{date}_{intersection}_{timeslot}_{code}-1-ekf"
     else:
-        filename = f"trajectories_vehicles_{date}_{intersection}_{timeslot}_{code}-1-ekf.csv"
-    df = pd.read_csv(data_root + f"{date}/{intersection}/{filename}")
+        filename = f"trajectories_vehicles_{date}_{intersection}_{timeslot}_{code}-1-ekf"
+    # df = pd.read_csv(data_root + f"{date}/{intersection}/{filename}.csv")
+    df = pd.read_parquet(data_root + f"{date}/{intersection}/{filename}.parquet")
     df = df.dropna()
     df['x_act_ekf'] = df['x_ekf'] + X_2056_offset
     df['y_act_ekf'] = df['y_ekf'] + Y_2056_offset
@@ -153,10 +154,11 @@ if SUBSAMPLED:
     gc.collect()
 else:
     if mode == "bike":
-        filename = f"trajectories_bikes_{date}_{intersection}_{timeslot}_{code}-1-ekf-lane.csv"
+        filename = f"trajectories_bikes_{date}_{intersection}_{timeslot}_{code}-1-ekf-lane"
     else:
-        filename = f"trajectories_vehicles_{date}_{intersection}_{timeslot}_{code}-1-ekf-lane.csv"
-    mod_df.to_csv(data_root + f"{date}/{intersection}/{filename}", index=False)
+        filename = f"trajectories_vehicles_{date}_{intersection}_{timeslot}_{code}-1-ekf-lane"
+    # mod_df.to_csv(data_root + f"{date}/{intersection}/{filename}.csv", index=False)
+    mod_df.to_parquet(data_root + f"{date}/{intersection}/{filename}.parquet", compression='zstd', index=False)
 
 
 # #############################################################################

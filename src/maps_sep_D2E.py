@@ -449,6 +449,12 @@ serialize_registry(
     save_path        = save_path,
 )
 
+import shutil
+
+loc_num = BikeZ_Config.location_map[(date[5:7], intersection, code)]
+dest_path = f'../data/registry_location{loc_num}.pkl'
+shutil.copy(save_path, dest_path)
+
 
 from tools_map_visualization import create_registry_map
 

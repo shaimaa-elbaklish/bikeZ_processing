@@ -42,8 +42,9 @@ X_2056_offset = XY_2056_Bounds[0][0]
 Y_2056_offset = XY_2056_Bounds[1][0]
 
 # Load the lane coordinate CSV (output of main_coordinate_transform.py)
-filename = f"trajectories_bikes_{date}_{intersection}_{timeslot}_{code}-1-ekf-lane.csv"
-df       = pd.read_csv(data_root + f"{date}/{intersection}/{filename}")
+filename = f"trajectories_bikes_{date}_{intersection}_{timeslot}_{code}-1-ekf-lane"
+# df       = pd.read_csv(data_root + f"{date}/{intersection}/{filename}.csv")
+df       = pd.read_parquet(data_root + f"{date}/{intersection}/{filename}.parquet")
 
 # Load the registry (needed for plotting only)
 registry_path  = f"../data/registry_{date}_{intersection}_{code}.pkl"
