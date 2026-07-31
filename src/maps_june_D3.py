@@ -77,12 +77,55 @@ Y_2056_offset = XY_2056_Bounds[1][0]
 
 # Site constants
 kml_path      = '../maps/from_swisstopo/June_D3.kml'
+kml_path_gis  = '../maps/from_swisstopo/June_D3_D4_GIS.kml'
 save_path     = f'../data/registry_{date}_{intersection}_{code}.pkl'
 max_chain_len = 3
 
 
 # Share Link: https://s.geo.admin.ch/m7vfc4w337ds
 # Edit Link: https://s.geo.admin.ch/9m04oebq3knc
+
+# GIS:
+# Share Link: https://geo.zh.ch/s/bf55b3ae-d28b-4558-a2dd-561a6fdbb716
+
+
+# #############################################################################
+# HELPER FUNCTIONS
+# #############################################################################
+def merge_replace(gdf_base, gdf_override, key='description'):
+    """
+    Replace rows in gdf_base whose `key` value also appears in gdf_override
+    with the gdf_override version. Anything in gdf_override not present in
+    gdf_base gets appended as new.
+    """
+    override_names = set(gdf_override[key].dropna())
+
+    # Keep only base rows NOT being replaced
+    gdf_base_filtered = gdf_base[~gdf_base[key].isin(override_names)]
+
+    # Combine: kept base rows + all override rows
+    merged = gpd.GeoDataFrame(
+        pd.concat([gdf_base_filtered, gdf_override], ignore_index=True),
+        crs=gdf_base.crs
+    )
+    return merged
+
+
+def trim_overlap_end(line_trim, line_keep, buffer_dist):
+    """
+    Remove the TRAILING portion of line_trim that overlaps with line_keep
+    (falls within buffer_dist of it), keeping only the non-overlapping head.
+    Best for a many-vertex line_trim being joined to a sparse/coarse line_keep.
+    """
+    buf = line_keep.buffer(buffer_dist)
+    coords = list(line_trim.coords)
+    cut_idx = len(coords)
+    for i in range(len(coords) - 1, -1, -1):
+        pt = Point(coords[i][:2])
+        if not buf.contains(pt):
+            cut_idx = i + 1
+            break
+    return LineString(coords[:cut_idx])
 
 # #############################################################################
 # MAIN
@@ -120,6 +163,20 @@ gdf.plot(ax=ax, column='name', legend=True)
 
 print("Loading SwissTopo KML...")
 gdf_swisstopo = gpd.read_file(kml_path, driver='KML')
+
+print("Loading GIS ZH KML...")
+from tools_site_builder import read_gis_kml
+
+color_to_name = {
+    '#ff0000': 'Gessnerbr_EB',            # red
+    '#00ff00': 'Gessnerbr_Usteristr_CL',  # green
+    '#0000ff': 'KasernenstrN_NB',         # blue
+}
+gdf_gis = read_gis_kml(kml_path_gis, color_to_name)
+# merge them
+gdf_swisstopo = merge_replace(gdf_swisstopo, gdf_gis, key='Description')
+
+# sys.exit(1)
 
 # STEP 1: fit splines  (geometry sourcing, customise per road as needed)
 print("Fitting Lagerstr spline...")
@@ -170,20 +227,30 @@ tck_KNB_s, unew_KNB_s, cum_KNB_s, len_KNB_s = fit_spline_from_shapely(
     line_KNB_south, x_offset=X_2056_offset, y_offset=Y_2056_offset, smoothing=0
 )
 
+# print("Fitting Gessnerbr spline...")
+# tck_GEB, unew_GEB, cum_GEB, len_GEB = fit_spline_from_osmnx(
+#     gdf, 'Gessnerbrücke', x_offset=X_2056_offset, y_offset=Y_2056_offset
+# )
+# line_GEB = merge_osmnx_edges(gdf, 'Gessnerbrücke')
+
+
+# print("Fitting Gessnerbr sidewalk (WB) spline from SwissTopo...")
+# line_GWB = gdf_swisstopo[gdf_swisstopo['Description'] == 'Gessnerbr_WB'].geometry.item()
+# tck_GWB, unew_GWB, cum_GWB, len_GWB = fit_spline_from_shapely(
+#     line_GWB, x_offset=X_2056_offset, y_offset=Y_2056_offset
+# )
+# print(f"  Gessnerbr sidewalk length: {len_GWB:.1f} m")
+# print("Gessnerbr (WB) start:", line_GWB.coords[0], "end:", line_GWB.coords[-1])
+
+# NEW: Get it from CL extracted with GIS-ZH
 print("Fitting Gessnerbr spline...")
-tck_GEB, unew_GEB, cum_GEB, len_GEB = fit_spline_from_osmnx(
-    gdf, 'Gessnerbrücke', x_offset=X_2056_offset, y_offset=Y_2056_offset
+gessner_usteri_line = gdf_swisstopo[gdf_swisstopo['Description'] == 'Gessnerbr_Usteristr_CL'].geometry.item()
+gessnerall_line  = merge_osmnx_edges(gdf_main[gdf_main['name']=='Gessnerallee'], 'Gessnerallee')
+gessnerbr_line = cut_line_at_stop(gessner_usteri_line, gessnerall_line, choose='first',  plotting=False)
+tck_GB, unew_GB, cum_GB, len_GB = fit_spline_from_shapely(
+    gessnerbr_line, x_offset=X_2056_offset, y_offset=Y_2056_offset,
 )
-line_GEB = merge_osmnx_edges(gdf, 'Gessnerbrücke')
-
-
-print("Fitting Gessnerbr sidewalk (WB) spline from SwissTopo...")
-line_GWB = gdf_swisstopo[gdf_swisstopo['Description'] == 'Gessnerbr_WB'].geometry.item()
-tck_GWB, unew_GWB, cum_GWB, len_GWB = fit_spline_from_shapely(
-    line_GWB, x_offset=X_2056_offset, y_offset=Y_2056_offset
-)
-print(f"  Gessnerbr sidewalk length: {len_GWB:.1f} m")
-print("Gessnerbr (WB) start:", line_GWB.coords[0], "end:", line_GWB.coords[-1])
+print(f"  Gessnerbr length: {len_GB:.1f} m")
 
 print("Fitting KasernenstrN NB continuation spline from SwissTopo...")
 line_KNB_st = gdf_swisstopo[gdf_swisstopo['Description'] == 'KasernenstrN_NB'].geometry.item()
@@ -193,18 +260,31 @@ STADTTUNNEL_IDS = [824512237, 526215130]
 line_stadttunnel = merge_edges_by_ids(gdf, STADTTUNNEL_IDS)
 
 line_KNB_st_snapped = snap(line_KNB_st_reversed, line_stadttunnel, tolerance=0.0001)
-line_KNB_full = linemerge(MultiLineString([
-    line_KNB_st_snapped,
-    line_stadttunnel
-]))
-if isinstance(line_KNB_full, MultiLineString):
-    # Try manual join by forcing endpoint connection
-    if line_KNB_st_reversed.has_z:
-        coords_combined = [(x, y) for x, y, *rest in line_KNB_st_reversed.coords] + \
-            list(line_stadttunnel.coords)
-    else:
-        coords_combined = list(line_KNB_st_reversed.coords) + list(line_stadttunnel.coords)
-    line_KNB_full = LineString(coords_combined)
+# line_KNB_full = linemerge(MultiLineString([
+#     line_KNB_st_snapped,
+#     line_stadttunnel
+# ]))
+# if isinstance(line_KNB_full, MultiLineString):
+#     # Try manual join by forcing endpoint connection
+#     if line_KNB_st_reversed.has_z:
+#         coords_combined = [(x, y) for x, y, *rest in line_KNB_st_reversed.coords] + \
+#             list(line_stadttunnel.coords)
+#     else:
+#         coords_combined = list(line_KNB_st_reversed.coords) + list(line_stadttunnel.coords)
+#     line_KNB_full = LineString(coords_combined)
+# line_KNB_full = LineString(list(line_KNB_full.coords)[::-1])
+# line_KNB_full = densify_linestring(line_KNB_full, num_segments=20)
+# line_KNB_full = LineString(list(line_KNB_full.coords)[::-1])
+
+# NEW: trim the overlapping tail off the many-point KNB line, keep stadttunnel intact
+line_KNB_st_trimmed = trim_overlap_end(line_KNB_st_snapped, line_stadttunnel, buffer_dist=0.00005)
+if line_KNB_st_trimmed.has_z:
+    coords_combined = [(x, y) for x, y, *rest in line_KNB_st_trimmed.coords] + \
+        list(line_stadttunnel.coords)
+else:
+    coords_combined = list(line_KNB_st_trimmed.coords) + list(line_stadttunnel.coords)
+line_KNB_full = LineString(coords_combined)
+
 line_KNB_full = LineString(list(line_KNB_full.coords)[::-1])
 line_KNB_full = densify_linestring(line_KNB_full, num_segments=20)
 line_KNB_full = LineString(list(line_KNB_full.coords)[::-1])
@@ -240,13 +320,18 @@ plot_line(line_L, ax=ax, add_points=False, color='tab:purple', label='Lagerstr')
 plot_points(Point(line_L.coords[0]),   color='red',   marker='o',)
 plot_points(Point(line_L.coords[-2]),  color='black', marker='x',)
 
+# # Gessnerbr — EB (positive) and WB (opposite/sidewalk)
+# plot_line(line_GEB, ax=ax, add_points=False, color='tab:brown', label='Gessnerbr_EB')
+# plot_points(Point(line_GEB.coords[1]),  color='red',   marker='o',)
+# plot_points(Point(line_GEB.coords[-1]), color='black', marker='x',)
+# plot_line(line_GWB, ax=ax, add_points=False, color='tab:pink', label='Gessnerbr_WB')
+# plot_points(Point(line_GWB.coords[0]),  color='red',   marker='o',)
+# plot_points(Point(line_GWB.coords[-1]), color='black', marker='x',)
+
 # Gessnerbr — EB (positive) and WB (opposite/sidewalk)
-plot_line(line_GEB, ax=ax, add_points=False, color='tab:brown', label='Gessnerbr_EB')
-plot_points(Point(line_GEB.coords[1]),  color='red',   marker='o',)
-plot_points(Point(line_GEB.coords[-1]), color='black', marker='x',)
-plot_line(line_GWB, ax=ax, add_points=False, color='tab:pink', label='Gessnerbr_WB')
-plot_points(Point(line_GWB.coords[0]),  color='red',   marker='o',)
-plot_points(Point(line_GWB.coords[-1]), color='black', marker='x',)
+plot_line(gessnerbr_line, ax=ax, add_points=False, color='tab:brown', label='Gessnerbr')
+plot_points(Point(gessnerbr_line.coords[1]),  color='red',   marker='o',)
+plot_points(Point(gessnerbr_line.coords[-1]), color='black', marker='x',)
 
 handles, labels = ax.get_legend_handles_labels()
 fig.legend(handles, labels, loc="lower center", ncols=3)
@@ -256,7 +341,7 @@ fig.suptitle(
     fontsize=11
 )
 fig.tight_layout()
-
+# sys.exit(1)
 
 # =============================================================================
 # PHASE 1: register_geometries
@@ -313,22 +398,31 @@ RAW_AXES = [
         'stop_line_id':  'Lagerstr_Stop',
         'yield_line_id': 'Lagerstr_Yield',
     },
-    # --- Done ---
+    # {
+    #     'name':          'Gessnerbr_EB',
+    #     'positive_dir':  'EB',
+    #     'spline':        (tck_GEB, unew_GEB, cum_GEB),
+    #     'total_length':  len_GEB,
+    #     'line_wgs84':    line_GEB,
+    #     'stop_line_id':  'Gessnerbr_Stop',
+    #     'yield_line_id': 'Gessnerbr_Yield',
+    # },
+    # {
+    #     'name':          'Gessnerbr_WB',
+    #     'positive_dir':  'WB',
+    #     'spline':        (tck_GWB, unew_GWB, cum_GWB),
+    #     'total_length':  len_GWB,
+    #     'line_wgs84':    line_GWB,
+    #     'stop_line_id':  'Gessnerbr_Stop',
+    #     'yield_line_id': 'Gessnerbr_Yield',
+    # },
+    # NEW
     {
-        'name':          'Gessnerbr_EB',
+        'name':          'Gessnerbr',
         'positive_dir':  'EB',
-        'spline':        (tck_GEB, unew_GEB, cum_GEB),
-        'total_length':  len_GEB,
-        'line_wgs84':    line_GEB,
-        'stop_line_id':  'Gessnerbr_Stop',
-        'yield_line_id': 'Gessnerbr_Yield',
-    },
-    {
-        'name':          'Gessnerbr_WB',
-        'positive_dir':  'WB',
-        'spline':        (tck_GWB, unew_GWB, cum_GWB),
-        'total_length':  len_GWB,
-        'line_wgs84':    line_GWB,
+        'spline':        (tck_GB, unew_GB, cum_GB),
+        'total_length':  len_GB,
+        'line_wgs84':    gessnerbr_line,
         'stop_line_id':  'Gessnerbr_Stop',
         'yield_line_id': 'Gessnerbr_Yield',
     },
@@ -372,13 +466,21 @@ SEG_DEFS = [
      'direction': 'WB', 'mode': 'shared', 'bike_lane': {'w_bike': 1.5},
      'd_left': 1.5, 'd_right': 15.0},
     
-    # ── Gessnerbrücke ─────────────────────────────────────────────────────────
-    {'seg_key': 'Gessnerbr_EB', 'geometry_key': 'Gessnerbr_EB',
+    # # ── Gessnerbrücke ─────────────────────────────────────────────────────────
+    # {'seg_key': 'Gessnerbr_EB', 'geometry_key': 'Gessnerbr_EB',
+    #  'direction': 'EB', 'mode': 'shared', 'bike_lane': {'w_bike': 2.5},
+    #  'd_left': 6.0, 'd_right': 10.0},
+    # {'seg_key': 'Gessnerbr_WB', 'geometry_key': 'Gessnerbr_WB',
+    #  'direction': 'WB', 'mode': 'bike', 'bike_lane': {'w_bike': 4.5},
+    #  'd_left': 4.0, 'd_right': 8.0},
+    
+    # ── NEW: Gessnerbrücke ─────────────────────────────────────────────────────────
+    {'seg_key': 'Gessnerbr_EB', 'geometry_key': 'Gessnerbr',
      'direction': 'EB', 'mode': 'shared', 'bike_lane': {'w_bike': 2.5},
-     'd_left': 6.0, 'd_right': 10.0},
-    {'seg_key': 'Gessnerbr_WB', 'geometry_key': 'Gessnerbr_WB',
+     'd_left': 1.5, 'd_right': 13.0},
+    {'seg_key': 'Gessnerbr_WB', 'geometry_key': 'Gessnerbr',
      'direction': 'WB', 'mode': 'bike', 'bike_lane': {'w_bike': 4.5},
-     'd_left': 4.0, 'd_right': 8.0},
+     'd_left': 1.5, 'd_right': 13.0},
 ]
 
 segment_registry = build_segment_registry(geometry_store, SEG_DEFS)
@@ -449,10 +551,16 @@ geometry_store['intersection_area_MainInt'] = build_intersection_polygon(
         {'geom_key': 'Lagerstr', 's_change_key': 's_change',
          'pos_seg_key': 'Lagerstr_EB', 'opp_seg_key': 'Lagerstr_WB',
          'approach_seg_key': 'Lagerstr_EB'},
-        {'geom_key': 'Gessnerbr_WB',    's_change_key': 's_change',
-         'pos_seg_key': 'Gessnerbr_WB',  'opp_seg_key': 'Gessnerbr_EB',
-         'approach_seg_key': 'Gessnerbr_WB'},
-        {'geom_key': 'Gessnerbr_EB',    's_change_key': 's_change',
+        
+        # {'geom_key': 'Gessnerbr_WB',    's_change_key': 's_change',
+        #  'pos_seg_key': 'Gessnerbr_WB',  'opp_seg_key': 'Gessnerbr_EB',
+        #  'approach_seg_key': 'Gessnerbr_WB'},
+        # {'geom_key': 'Gessnerbr_EB',    's_change_key': 's_change',
+        #  'pos_seg_key': 'Gessnerbr_EB',  'opp_seg_key': 'Gessnerbr_WB',
+        #  'approach_seg_key': 'Gessnerbr_WB'},
+        
+        # NEW
+        {'geom_key': 'Gessnerbr',    's_change_key': 's_change',
          'pos_seg_key': 'Gessnerbr_EB',  'opp_seg_key': 'Gessnerbr_WB',
          'approach_seg_key': 'Gessnerbr_WB'},
         
@@ -575,4 +683,11 @@ m = create_registry_map(
     geometry_store, segment_registry, movement_registry,
     gdf_swisstopo,
     save_path=f'../maps/registry_{date}_{intersection}_{code}.html',
+) # uses base_map_src='swisstopo' by default
+
+m = create_registry_map(
+    geometry_store, segment_registry, movement_registry,
+    gdf_swisstopo,
+    base_map_src='gis-zh',
+    save_path=f'../maps/registry_{date}_{intersection}_{code}_gis.html',
 )

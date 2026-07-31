@@ -7,15 +7,22 @@ set SUBSAMPLED_FLAG=True
 set DATE=2025-06-16
 
 
-set INTERSECTION=D1
-set CODE=A
+@REM set INTERSECTION=D1
+@REM set CODE=A
+@REM for %%S in (AM1 AM2 AM3 AM4 AM5 AM6 PM1 PM2 PM3 PM4 PM5 PM6) do (
+@REM     echo Running: %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %SUBSAMPLED_FLAG% %DEBUG_FLAG%
+@REM     python main_coordinate_transform.py %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %SUBSAMPLED_FLAG% %DEBUG_FLAG%
+@REM )
+
+set INTERSECTION=D3
+set CODE=E
 for %%S in (AM1 AM2 AM3 AM4 AM5 AM6 PM1 PM2 PM3 PM4 PM5 PM6) do (
     echo Running: %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %SUBSAMPLED_FLAG% %DEBUG_FLAG%
     python main_coordinate_transform.py %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %SUBSAMPLED_FLAG% %DEBUG_FLAG%
 )
 
-set INTERSECTION=D3
-set CODE=E
+set INTERSECTION=D4
+set CODE=F
 for %%S in (AM1 AM2 AM3 AM4 AM5 AM6 PM1 PM2 PM3 PM4 PM5 PM6) do (
     echo Running: %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %SUBSAMPLED_FLAG% %DEBUG_FLAG%
     python main_coordinate_transform.py %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %SUBSAMPLED_FLAG% %DEBUG_FLAG%
@@ -35,13 +42,6 @@ for %%S in (PM1 PM2 PM3 PM4 PM5 PM6) do (
     echo Running: %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %SUBSAMPLED_FLAG% %DEBUG_FLAG%
     python main_coordinate_transform.py %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %SUBSAMPLED_FLAG% %DEBUG_FLAG%
 )
-
-set INTERSECTION=D4
-set CODE=F
-for %%S in (AM1 AM2 AM3 AM4 AM5 AM6 PM1 PM2 PM3 PM4 PM5 PM6) do (
-    echo Running: %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %SUBSAMPLED_FLAG% %DEBUG_FLAG%
-    python main_coordinate_transform.py %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %SUBSAMPLED_FLAG% %DEBUG_FLAG%
-)
 :skip1
 
 
@@ -49,19 +49,19 @@ for %%S in (AM1 AM2 AM3 AM4 AM5 AM6 PM1 PM2 PM3 PM4 PM5 PM6) do (
 set DATE=2025-06-17
 
 
-set INTERSECTION=D1
-set CODE=A
-for %%S in (AM1 AM2 AM3 AM4 AM5 AM6) do (
-    echo Running: %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %SUBSAMPLED_FLAG% %DEBUG_FLAG%
-    python main_coordinate_transform.py %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %SUBSAMPLED_FLAG% %DEBUG_FLAG%
-)
+@REM set INTERSECTION=D1
+@REM set CODE=A
+@REM for %%S in (AM1 AM2 AM3 AM4 AM5 AM6) do (
+@REM     echo Running: %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %SUBSAMPLED_FLAG% %DEBUG_FLAG%
+@REM     python main_coordinate_transform.py %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %SUBSAMPLED_FLAG% %DEBUG_FLAG%
+@REM )
 
-set INTERSECTION=D1
-set CODE=B
-for %%S in (PM1 PM2 PM3 PM4 PM5 PM6) do (
-    echo Running: %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %SUBSAMPLED_FLAG% %DEBUG_FLAG%
-    python main_coordinate_transform.py %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %SUBSAMPLED_FLAG% %DEBUG_FLAG%
-)
+@REM set INTERSECTION=D1
+@REM set CODE=B
+@REM for %%S in (PM1 PM2 PM3 PM4 PM5 PM6) do (
+@REM     echo Running: %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %SUBSAMPLED_FLAG% %DEBUG_FLAG%
+@REM     python main_coordinate_transform.py %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %SUBSAMPLED_FLAG% %DEBUG_FLAG%
+@REM )
 
 set INTERSECTION=D3
 set CODE=E
@@ -70,16 +70,16 @@ for %%S in (AM1 AM2 AM3 AM4 AM5 AM6 PM1 PM2 PM3 PM4 PM5 PM6) do (
     python main_coordinate_transform.py %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %SUBSAMPLED_FLAG% %DEBUG_FLAG%
 )
 
-GOTO:skip2
-set INTERSECTION=D2
-set CODE=C
+set INTERSECTION=D4
+set CODE=F
 for %%S in (AM1 AM2 AM3 AM4 AM5 AM6 PM1 PM2 PM3 PM4 PM5 PM6) do (
     echo Running: %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %SUBSAMPLED_FLAG% %DEBUG_FLAG%
     python main_coordinate_transform.py %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %SUBSAMPLED_FLAG% %DEBUG_FLAG%
 )
 
-set INTERSECTION=D4
-set CODE=F
+GOTO:skip2
+set INTERSECTION=D2
+set CODE=C
 for %%S in (AM1 AM2 AM3 AM4 AM5 AM6 PM1 PM2 PM3 PM4 PM5 PM6) do (
     echo Running: %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %SUBSAMPLED_FLAG% %DEBUG_FLAG%
     python main_coordinate_transform.py %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %SUBSAMPLED_FLAG% %DEBUG_FLAG%
@@ -112,12 +112,12 @@ for %%S in (AM1 AM2 AM3 AM4 AM5 AM6) do (
 )
 :skip3
 
-set INTERSECTION=D2
-set CODE=E
-for %%S in (PM1 PM2 PM3 PM4 PM5 PM6) do (
-    echo Running: %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %SUBSAMPLED_FLAG% %DEBUG_FLAG%
-    python main_coordinate_transform.py %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %SUBSAMPLED_FLAG% %DEBUG_FLAG%
-)
+@REM set INTERSECTION=D2
+@REM set CODE=E
+@REM for %%S in (PM1 PM2 PM3 PM4 PM5 PM6) do (
+@REM     echo Running: %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %SUBSAMPLED_FLAG% %DEBUG_FLAG%
+@REM     python main_coordinate_transform.py %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %SUBSAMPLED_FLAG% %DEBUG_FLAG%
+@REM )
 
 
 
@@ -139,16 +139,16 @@ for %%S in (AM1 AM2 AM3 AM4 AM5 AM6) do (
 )
 :skip4
 
-set INTERSECTION=D1
-set CODE=H
-for %%S in (PM1 PM2 PM3) do (
-    echo Running: %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %SUBSAMPLED_FLAG% %DEBUG_FLAG%
-    python main_coordinate_transform.py %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %SUBSAMPLED_FLAG% %DEBUG_FLAG%
-)
+@REM set INTERSECTION=D1
+@REM set CODE=H
+@REM for %%S in (PM1 PM2 PM3) do (
+@REM     echo Running: %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %SUBSAMPLED_FLAG% %DEBUG_FLAG%
+@REM     python main_coordinate_transform.py %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %SUBSAMPLED_FLAG% %DEBUG_FLAG%
+@REM )
 
-set INTERSECTION=D2
-set CODE=I
-for %%S in (PM1 PM2 PM3) do (
-    echo Running: %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %SUBSAMPLED_FLAG% %DEBUG_FLAG%
-    python main_coordinate_transform.py %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %SUBSAMPLED_FLAG% %DEBUG_FLAG%
-)
+@REM set INTERSECTION=D2
+@REM set CODE=I
+@REM for %%S in (PM1 PM2 PM3) do (
+@REM     echo Running: %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %SUBSAMPLED_FLAG% %DEBUG_FLAG%
+@REM     python main_coordinate_transform.py %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %SUBSAMPLED_FLAG% %DEBUG_FLAG%
+@REM )

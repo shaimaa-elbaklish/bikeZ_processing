@@ -68,6 +68,7 @@ import numpy as np
 import pandas as pd
 import osmnx as ox
 import geopandas as gpd
+import xml.etree.ElementTree as ET
 
 from datetime import date as _date
 from scipy.interpolate import splev
@@ -85,6 +86,31 @@ from tools_coordinate_transform import (
     connect_lines_g2,
     build_d_boundary_spline,
 )
+
+# #############################################################################
+# KML HELPERS
+# #############################################################################
+def _kml_color_to_hex(kml_color):
+    # KML color format is aabbggrr -> convert to standard #rrggbb
+    aa, bb, gg, rr = kml_color[0:2], kml_color[2:4], kml_color[4:6], kml_color[6:8]
+    return f'#{rr}{gg}{bb}'.lower()
+
+
+def _extract_colors(path):
+    ns = {'kml': 'http://www.opengis.net/kml/2.2'}
+    root = ET.parse(path).getroot()
+    colors = []
+    for pm in root.iter('{http://www.opengis.net/kml/2.2}Placemark'):
+        color_el = pm.find('.//kml:LineStyle/kml:color', ns)
+        colors.append(_kml_color_to_hex(color_el.text.strip()) if color_el is not None else None)
+    return colors
+
+
+def read_gis_kml(kml_path, color_to_name):
+    gdf = gpd.read_file(kml_path, driver='KML')
+    gdf['Color'] = _extract_colors(kml_path)
+    gdf['Description'] = gdf['Color'].map(color_to_name)
+    return gdf
 
 # #############################################################################
 # INTERNAL HELPERS

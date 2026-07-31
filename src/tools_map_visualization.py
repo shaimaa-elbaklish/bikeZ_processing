@@ -63,6 +63,33 @@ def create_swisstopo_map(center_lat, center_lon, zoom_start=20, add_layer_contro
     return m
 
 
+def create_gis_zh_map(center_lat, center_lon, zoom_start=20, add_layer_control=True):
+    m = folium.Map(
+        location=[center_lat, center_lon],
+        zoom_start=zoom_start,
+        tiles=None,
+        control_scale=True,
+        max_zoom=25,          # <-- allow the map itself to zoom further
+    )
+
+    folium.raster_layers.WmsTileLayer(
+        url="https://wms.zh.ch/OGDOrthoZH",
+        layers="ortho_s_2024",
+        fmt="image/jpeg",
+        transparent=False,
+        version="1.3.0",
+        attr="© Kanton Zürich, GIS-ZH",
+        name="Orthofoto ZH 2024/25",
+        overlay=False,
+        control=True,
+        max_zoom=25,           # <-- allow this layer to render past zoom 18
+    ).add_to(m)
+
+    if add_layer_control:
+        folium.LayerControl().add_to(m)
+    return m
+
+
 def plot_line_xy_2056(m, x_pts, y_pts, label, linecolor='black', lineweight=5, 
                       linealpha=0.8, linedashed=True, start_point=False):
     line_xy = LineString(np.column_stack((x_pts, y_pts)))
@@ -344,6 +371,7 @@ def create_registry_map(geometry_store, segment_registry, movement_registry,
                          gdf_swisstopo=None,
                          center_lat=None, center_lon=None,
                          zoom_start=19,
+                         base_map_src='swisstopo',
                          save_path=None):
     """
     Visualize geometry_store, segment_registry, and movement_registry
@@ -367,6 +395,7 @@ def create_registry_map(geometry_store, segment_registry, movement_registry,
     gdf_swisstopo    : GeoDataFrame
     center_lat/lon   : float | None
     zoom_start       : int
+    base_map_src     : str | 'swisstopo' — sets base map to use ('swisstopo', 'gis-zh')
     save_path        : str | None — saves HTML if provided
  
     Returns
@@ -388,10 +417,17 @@ def create_registry_map(geometry_store, segment_registry, movement_registry,
             lon_c, lat_c = transformer_xy2056_to_lonlat.transform(x_m + x_offset, y_m + y_offset)
             center_lat, center_lon = lat_c, lon_c
             break
- 
-    m = create_swisstopo_map(center_lat, center_lon,
-                              zoom_start=zoom_start,
-                              add_layer_control=False)
+    
+    if base_map_src == 'gis-zh':
+        m = create_gis_zh_map(center_lat, center_lon,
+                                  zoom_start=zoom_start,
+                                  add_layer_control=False)
+    else:
+        m = create_swisstopo_map(center_lat, center_lon,
+                                  zoom_start=zoom_start,
+                                  add_layer_control=False)
+    
+    
  
     # =========================================================================
     # GROUP 0 — KML overlays
