@@ -135,7 +135,7 @@ df_10fps = df_10fps[[
     'in_gap', 'off_grid'
 ]]
 
-output_path = f"C:/Users/ShaimaaElBaklish/OneDrive - ETH Zurich/BikeZ-Subsampled/location_{loc_num}/{loc_num}_{mode}s_{date}_{timeslot}.csv"
+output_path = BikeZ_Config.subsampled_data_root + f"location_{loc_num}/{loc_num}_{mode}s_{date}_{timeslot}.csv"
 df_10fps.to_csv(output_path, index=False)
 
 

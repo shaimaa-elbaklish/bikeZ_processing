@@ -5,8 +5,8 @@
 - [Installation](#installation)
 - [Setup and Configuration](#setup-and-configuration)
 - **Data Processing**
-    - [EKF + Gap Inference Algorithm](#mobilysis-data-processing-ekf--gap-inference-algorithm)
-    - [Sub-sampling](#mobilysis-data-processing-sub-sampling)
+    - [Gap Inference + EKF-RTS Smoothing Algorithm](#mobilysis-data-processing-gap-inference--ekf-rts-smoothing-algorithm)
+    - [Down-sampling](#mobilysis-data-processing-down-sampling)
     - [Lane Coordinate Transformation](#mobilysis-data-processing-lane-coordinate-transformation)
 - **Data Visualization**
     - [HTML Animation Tools](#data-visualization-tools)
@@ -40,7 +40,7 @@ This project was developed on Windows (win-64) with **Python 3.13**, and has als
     ```
 
 ### Notes
-- Dependency resolution has been tested on Windows for Python 3.11–3.13. If installing on Linux/macOS, some packages may require the system libraries noted above to build successfully.
+- Dependency resolution has been tested on Windows for Python 3.11–3.13. If installing on Linux/macOS, some packages may require the system libraries noted below to build successfully.
 - Some packages (`fiona`, `geopandas`, `pyproj`, `h5py`) depend on system libraries such as GDAL, PROJ, and HDF5. On Linux, install these via your package manager first (e.g. `apt install gdal-bin libgdal-dev proj-bin libhdf5-dev` on Debian/Ubuntu) if the pip install fails to build them.
 - `gurobipy`, `mosek`, and `xpress` are commercial solvers included as dependencies. The packages will install, but you'll need valid licenses to use them.
 
@@ -63,6 +63,7 @@ class BikeZ_Config:
             "vehicle": "/usr/path/to/BikeZ/Zurich_202509/vehicle_trajectories/"  # <-- CHANGE HERE! -->
         }
     })
+    subsampled_data_root: str = "/usr/path/to/BikeZ-Subsampled/"                 # <-- CHANGE HERE! -->
 ```
 
 This is a summary of the available files.
@@ -90,7 +91,7 @@ This is a summary of the available files.
 ---
 
 
-## MobiLysis Data Processing: EKF + Gap Inference Algorithm
+## MobiLysis Data Processing: Gap Inference + EKF-RTS Smoothing Algorithm
 
 Run for a single csv trajectory data file by executing:
 ```bash
@@ -108,11 +109,11 @@ Regarding `%DEBUG_FLAG%`, it should be `False` when running an entire dataframe 
 
 
 ### Outputs
-The output is a csv file saved in the same location as the original file. It has the naming convention:
+The output is a parquet file saved in the same location as the original file. It has the naming convention:
 ```
-<original-filename>-ekf.csv
+<original-filename>-ekf.parquet
 Example Original File: trajectories_bikes_2025-06-16_D3_AM1_E-1.csv
----> Output File: trajectories_bikes_2025-06-16_D3_AM1_E-1-ekf.csv
+---> Output File: trajectories_bikes_2025-06-16_D3_AM1_E-1-ekf.parquet
 ```
 
 | Column            | Description                                                                                                                                                                   |
@@ -138,7 +139,9 @@ Example Original File: trajectories_bikes_2025-06-16_D3_AM1_E-1.csv
 ---
 
 
-## MobiLysis Data Processing: Sub-sampling
+## MobiLysis Data Processing: Down-Sampling
+The trajectory dataset is downsampled to **10 fps** on a homogenous master time-grid *shared between bicycles and vehicles*.
+
 Run for a single csv trajectory data file by executing:
 ```bash
 python main_subsampling.py %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %TIMESLOT% %DEBUG_FLAG%
@@ -149,11 +152,6 @@ For example:
 python main_subsampling.py 2025-06-16 bike D3 E AM2 False
 ```
 Or, you can run for the entire dataset via the batch script `run_subsampling.bat`.
-
-Also, the subsampled data root directory needs to be updated accordingly in `main_subsampling.py`.
-```
-subsampled_data_root = "/usr/path/to/BikeZ-Subsampled/"    # <-- CHANGE HERE -->
-```
 
 ### Outputs
 
@@ -171,6 +169,7 @@ The output is a csv file saved in the specified output path, with the naming con
 | `a_ekf` | Linearly interpolated EKF-smoothed acceleration (m/s<sup>2</sup>) |
 | `angle_ekf` | Linearly interpolated EKF-estimated heading angle (rad), wrapped to (-$\pi$, $\pi$] |
 | `angular_vel_ekf` | Linearly interpolated EKF-estimated angular velocity (rad/s) |
+| `in_gap` | True if this row is interpolated during an occlusion gap interval that was inferred in the previous step (i.e. Gap Inference + EKF-RTS Smoothing). |
 | `off_grid` | True if this row is NOT an exact member of the shared master grid (i.e. a spliced-in head/tail from include_heads/include_tails, or the forced fallback point for an empty-window trajectory). |
 ---
 
@@ -180,7 +179,7 @@ Run for a single csv trajectory data file by executing:
 ```bash
 python main_coordinate_transform.py %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %TIMESLOT% %SUBSAMPLED_FLAG% %DEBUG_FLAG%
 ```
-where `%VEH_TYPE%` denotes the mode which can be `bike` or `vehicle`, and the `%SUBSAMPLED_FLAG%` denotes whether to transform the subsampled 10 fps data (if `True`) or the original data at 25 fps.
+where `%VEH_TYPE%` denotes the mode which can be `bike` or `vehicle`, and the `%SUBSAMPLED_FLAG%` denotes whether to transform the downsampled **10 fps** data (if `True`) or the original data at 25 fps.
 The other arguments are as per the summary table above.
 For example:
 ```bash
@@ -188,19 +187,14 @@ python main_coordinate_transform.py 2025-06-16 bike D3 E AM2 False False
 ```
 Or, you can run for the entire dataset via the batch script `run_coordinate_transform.bat`.
 
-Also, the subsampled data root directory needs to be updated accordingly in `main_coordinate_transform.py`.
-```python
-subsampled_data_root = "/usr/path/to/BikeZ-Subsampled/"    # <-- CHANGE HERE -->
-```
-
 ### Outputs
-The output is a csv file saved in the same location as the original file if `%SUBSAMPLED_FLAG%` is `False`. It has the naming convention:
+The output is a parquet file saved in the same location as the original file if `%SUBSAMPLED_FLAG%` is `False`. It has the naming convention:
 ```
-<original-filename>-ekf-lane.csv
+<original-filename>-ekf-lane.parquet
 Example Original File: trajectories_bikes_2025-06-16_D3_AM1_E-1.csv
----> Output File: trajectories_bikes_2025-06-16_D3_AM1_E-1-ekf-lane.csv
+---> Output File: trajectories_bikes_2025-06-16_D3_AM1_E-1-ekf-lane.parquet
 ```
-If `%SUBSAMPLED_FLAG%` is `True`, the output csv file is saved in the specified output path, with the naming convention: `locationNumber_mode_date_timeslot_lane.csv`
+If `%SUBSAMPLED_FLAG%` is `True`, the output **csv** file is saved in the specified output path, with the naming convention: `locationNumber_mode_date_timeslot_lane.csv`
 
 The following output columns are added.
 
@@ -234,6 +228,7 @@ The lane coordinate transform maps raw GPS trajectories from global EPSG:2056 `(
 
 At runtime, `to_lane_coordinates` walks each trajectory through these registries sequentially, matching points to segments via polygon containment and spline projection, and computing the full `(s, d, s_dot, d_dot, s_ddot, d_ddot)` decomposition.
 
+**Segment key conventions:** lane segment keys follow `{Road}_{Direction}` (e.g. `LangstrS_NB`); turn segment keys follow `turn_{approach_seg}_2_{departure_seg}` (e.g. `turn_LangstrS_NB_2_LangstrN_NB`). All valid keys are listed in `segment_registry`.
 
 ### Forced matching and transformation
 When desired, the chain can be specified manually using `to_lane_coordinates_forced`:
@@ -257,8 +252,6 @@ Output columns are the same as `to_lane_coordinates`, with `match_quality='force
 - Trajectory starts in the vicinity of change points (automatic pipeline cannot establish the approach segment).
 - Very short trajectories (< ~20 points) where polygon scoring is unreliable.
 - Ground-truth labelling for validation or downstream analysis.
-
-**Segment key conventions:** lane segment keys follow `{Road}_{Direction}` (e.g. `LangstrS_NB`); turn segment keys follow `turn_{approach_seg}_2_{departure_seg}` (e.g. `turn_LangstrS_NB_2_LangstrN_NB`). All valid keys are listed in `segment_registry`.
 
 **To include in main pipeline:** add desired vehicle or bicycle IDs into the csv file `./data/forced_transforms.csv`.
 
@@ -324,11 +317,7 @@ python generate_timestamped_map.py %DATE% %INTERSECTION% %CODE% %TIMESLOT% %SUBS
 # Example
 python generate_timestamped_map.py 2025-06-16 D3 E AM1 True 1
 ```
-- `%HISTORY_LENGTH%` (integer): Number of history seconds to display behind each point's current position. `0` shows only the current position for each bike/vehicle, with no trailing history. `1`, `2`, etc. extend how many preceding seconds of trajectory remain visible at each frame.
-- If `%SUBSAMPLED_FLAG%` is `True`, the subsampled data root directory needs to be updated accordingly in `generate_timestamped_map.py`.
-    ```python
-    subsampled_data_root = "/usr/path/to/BikeZ-Subsampled/"    # <-- CHANGE HERE -->
-    ```
+where `%HISTORY_LENGTH%` (integer) is the number of history seconds to display behind each point's current position. `0` shows only the current position for each bike/vehicle, with no trailing history. `1`, `2`, etc. extend how many preceding seconds of trajectory remain visible at each frame.
 
 Output is saved to `../maps/timestamped_trajectories_ALL_map_<date>_<intersection>_<timeslot>_<code>_history<history_len>s.html`.
 

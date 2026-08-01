@@ -61,7 +61,8 @@ X_2056_offset = XY_2056_Bounds[0][0]
 Y_2056_offset = XY_2056_Bounds[1][0]
 
 loc_num = BikeZ_Config.location_map[(date[5:7], intersection, code)]
-subsampled_data_root = "C:/Users/ShaimaaElBaklish/OneDrive - ETH Zurich/BikeZ-Subsampled/"
+subsampled_data_root = BikeZ_Config.subsampled_data_root
+#"C:/Users/ShaimaaElBaklish/OneDrive - ETH Zurich/BikeZ-Subsampled/"
 
 log = Logger(date, intersection, code, timeslot, f"CT_{mode}")
 

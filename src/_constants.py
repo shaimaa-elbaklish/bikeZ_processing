@@ -40,6 +40,7 @@ class BikeZ_Config:
             "vehicle": "C:/Users/ShaimaaElBaklish/Documents/Datasets/BikeZ/Zurich_202509/vehicle_trajectories/"
         }
     })
+    subsampled_data_root: str = "C:/Users/ShaimaaElBaklish/OneDrive - ETH Zurich/BikeZ-Subsampled/"
     avail_dates: Tuple[str] = (
         "2025-06-16", "2025-06-17", "2025-09-29", "2025-09-30")
     avail_intersections: Dict = field(default_factory=lambda: {

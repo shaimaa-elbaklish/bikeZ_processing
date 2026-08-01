@@ -154,6 +154,81 @@ def plot_ekf(veh_df, veh_gaps_df, veh_id, title):
     return fig
 
 # # #############################################################################
+# # MAIN: Figure for number of unique IDs
+# # #############################################################################
+# unique_ids = []
+# for date in all_dates_list:
+#     campaign = f"Zurich_2025{date[5:7]}"
+#     for mode in all_modes:
+#         data_root = BikeZ_Config.data_root[campaign][mode]
+#         all_intersections_list = BikeZ_Config.avail_intersections[date]
+#         for intersection, code in all_intersections_list:
+#             all_timeslots = BikeZ_Config.avail_timeslots[date][(intersection, code)]
+#             for timeslot in all_timeslots:
+#                 filename = f"trajectories_{mode}s_{date}_{intersection}_{timeslot}_{code}-1.csv"
+#                 csv_path = data_root + f"{date}/{intersection}/{filename}"
+#                 df = pd.read_csv(csv_path)
+#                 unique_ids.append(
+#                     [date, mode, intersection, code, timeslot, df['veh_id'].nunique()]
+#                 )
+                
+                
+#                 # sys.exit(1)
+#             print(f"Done for {mode}_{date}_{intersection}_{code}")
+            
+# unique_ids = pd.DataFrame(unique_ids, columns=['date', 'mode', 'intersection', 'code', 'timeslot', 'num_vehicles'])
+# unique_ids['location_num'] = unique_ids.apply(
+#     lambda r: BikeZ_Config.location_map.get((r['date'][5:7], r['intersection'], r['code'])), axis=1
+# )
+
+# locations = sorted(unique_ids['location_num'].unique())
+# x = np.arange(len(locations))
+# colors = {'bike': '#2196F3', 'vehicle': '#FF7043'}
+# width = 0.35
+# fig, ax = plt.subplots(1, 1, figsize=(6, 4))
+# for i, mode in enumerate(['bike', 'vehicle']):
+#     agg = (
+#         unique_ids[unique_ids['mode'] == mode]
+#         .groupby('location_num')['num_vehicles']
+#         .agg(['mean', 'std'])
+#         .reindex(locations)
+#     )
+#     offset = (i - 0.5) * width
+#     ax.bar(
+#         x + offset,
+#         agg['mean'],
+#         width=width * 0.9,
+#         color=colors[mode],
+#         alpha=0.7,
+#         label=mode
+#     )
+
+#     # # Clip only the lower error so mean - lower_err >= 0
+#     # lower_err = np.minimum(agg['std'], agg['mean'])
+#     # upper_err = agg['std']
+#     # yerr = np.vstack([lower_err, upper_err])
+#     ax.errorbar(
+#         x + offset,
+#         agg['mean'],
+#         yerr=agg['std'], #yerr,
+#         fmt='none',
+#         color='black',
+#         capsize=4,
+#         linewidth=1.2
+#     )
+
+# ax.set_xticks(x)
+# ax.set_xticklabels(locations)
+# ax.set_xlabel('Location', fontsize=FS_LABEL)
+# ax.set_ylabel('Number of Unique Entities', fontsize=FS_LABEL)
+# ax.tick_params(axis='both', labelsize=FS_TICK)
+# ax.legend(fontsize=FS_LEGEND)
+# fig.tight_layout()
+# plt.show()
+
+# sys.exit(1)
+
+# # #############################################################################
 # # MAIN: Reduce files by parquet saving
 # # #############################################################################
 # for date in all_dates_list:

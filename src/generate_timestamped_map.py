@@ -51,7 +51,8 @@ history_len  = args.history_length
 history_len  = int(max(0, history_len))
 
 campaign  = f"Zurich_2025{date[5:7]}"
-subsampled_data_root = "C:/Users/ShaimaaElBaklish/OneDrive - ETH Zurich/BikeZ-Subsampled/"
+subsampled_data_root = BikeZ_Config.subsampled_data_root
+#"C:/Users/ShaimaaElBaklish/OneDrive - ETH Zurich/BikeZ-Subsampled/"
 loc_num = BikeZ_Config.location_map[(date[5:7], intersection, code)]
 
 XY_2056_Bounds = BikeZ_Config.XY_2056_Bounds[date][(intersection, code)]
