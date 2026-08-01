@@ -314,7 +314,7 @@ SEG_DEFS = [
      'direction': 'NB', 'mode': 'shared', 'bike_lane': {'w_bike': 2.5},
      'd_left': 3.0, 'd_right': 11.0, 
      'car_lane_d_bnd': {
-         1: (-1.25, -4.5),
+         1: (-4.5, -1.25),
          2: (-1.25, 2.1),
      }},
     {'seg_key': 'LangstrS_SB', 'geometry_key': 'LangstrS',

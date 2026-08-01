@@ -58,8 +58,8 @@ def plot_geometry_store(geometry_store, gdf_swisstopo=None,
     Phase 1 validation plot.
 
     For each road axis in geometry_store:
-      - Forward direction: solid line, offset +offset_m to the left
-      - Reverse direction: dashed line, offset -offset_m to the right
+      - Forward direction: solid line, offset to the right (traffic side)
+      - Reverse direction: dashed line, offset to the left
       - s_change marker: vertical tick on the centerline
       - extra s_change_* markers: labeled differently
 
@@ -114,16 +114,16 @@ def plot_geometry_store(geometry_store, gdf_swisstopo=None,
         positive_dir = geo.get('positive_dir')
         col          = color_map[geom_key]
 
-        # Forward direction — solid, offset left
+        # Forward direction — solid, offset right
         x_fwd, y_fwd = _spline_xy(tck, unew, cum_dist, 0, L,
-                                   d_offset=+offset_m)
+                                   d_offset=-offset_m)
         ax.plot(x_fwd, y_fwd, color=col, linewidth=3, linestyle='-',
                 zorder=4, solid_capstyle='round',
                 label=f'{geom_key} ({positive_dir}↑)')
 
-        # Reverse direction — dashed, offset right
+        # Reverse direction — dashed, offset left
         x_rev, y_rev = _spline_xy(tck, unew, cum_dist, 0, L,
-                                   d_offset=-offset_m)
+                                   d_offset=+offset_m)
         ax.plot(x_rev, y_rev, color=col, linewidth=2, linestyle='--',
                 zorder=4, alpha=0.6, solid_capstyle='round',
                 label='_nolegend_')

@@ -33,7 +33,7 @@ BikeZ_Config = BikeZ_Config()
 # Specify Trajectory File
 date = BikeZ_Config.avail_dates[0]
 campaign = f"Zurich_2025{date[5:7]}" # June or September
-mode = BikeZ_Config.avail_modes[0] # Bike
+mode = BikeZ_Config.avail_modes[1] # Bike
 data_root = BikeZ_Config.data_root[campaign][mode]
 
 intersection, code = BikeZ_Config.avail_intersections[date][0]
@@ -47,12 +47,12 @@ Y_2056_offset = XY_2056_Bounds[1][0]
 # #############################################################################
 # MAIN: Load Data
 # #############################################################################
-if mode == "bike":
-    filename = f"trajectories_bikes_{date}_{intersection}_{timeslot}_{code}-1-ekf-lane"
-else:
-    filename = f"trajectories_vehicles_{date}_{intersection}_{timeslot}_{code}-1-ekf-lane"
-# df = pd.read_csv(data_root + f"{date}/{intersection}/{filename}.csv")
-df = pd.read_parquet(data_root + f"{date}/{intersection}/{filename}.parquet")
+# if mode == "bike":
+#     filename = f"trajectories_bikes_{date}_{intersection}_{timeslot}_{code}-1-ekf-lane"
+# else:
+#     filename = f"trajectories_vehicles_{date}_{intersection}_{timeslot}_{code}-1-ekf-lane"
+# # df = pd.read_csv(data_root + f"{date}/{intersection}/{filename}.csv")
+# df = pd.read_parquet(data_root + f"{date}/{intersection}/{filename}.parquet")
 
 # Load geometry, segment, and movement registries
 registry_path = f"../data/registry_{date}_{intersection}_{code}.pkl"
@@ -61,6 +61,23 @@ geometry_store    = registry['geometry_store']
 segment_registry  = registry['segment_registry']
 movement_registry = registry['movement_registry']
 max_chain_length  = registry['metadata'].get('max_chain_length', 3)
+
+loc_num = BikeZ_Config.location_map[(date[5:7], intersection, code)]
+subsampled_data_root = BikeZ_Config.subsampled_data_root
+filename = f"location_{loc_num}/{loc_num}_{mode}s_{date}_{timeslot}_lane.csv"
+df = pd.read_csv(subsampled_data_root + filename)
+df_seg = df[df['segment_id'] == 'LangstrS_NB']
+df_seg_carlane = df_seg[df_seg['car_lane_idx'] == 1]
+print('1: ', df_seg_carlane['veh_id'].unique())
+df_seg_carlane = df_seg[df_seg['car_lane_idx'] == 2]
+print('2: ', df_seg_carlane['veh_id'].unique())
+df_seg_carlane = df_seg[df_seg['car_lane_idx'].isna()]
+print('NaN: ', df_seg_carlane['veh_id'].nunique(), 'vehicles')
+print(df_seg_carlane['d_native'].describe())
+
+df_seg_bikelane = df_seg[df_seg['in_bike_lane'] == 1]
+print('\nIn Bike Lane: ', df_seg_bikelane['veh_id'].nunique(), 'vehicles')
+sys.exit(1)
 
 # #############################################################################
 # MAIN: Plot Longitudinal Position on a Segment
