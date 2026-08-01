@@ -2087,3 +2087,62 @@ def compute_travel_directed_s_d(bike_df, segment_registry, geometry_store):
     )
  
     return df
+
+# =============================================================================
+# CAR LANE MEMBERSHIP
+# =============================================================================
+def add_car_lane_membership(df, segment_registry, tol=0.15):
+    """
+    Adds a 'car_lane_idx' column: the car lane index a row's point falls
+    into, based on segment_registry[segment_id]['car_lane_d_bnd'].
+
+    Uses d_native (native spline lateral offset — the same frame
+    car_lane_d_bnd is defined in), NOT d (travel-direction-relative).
+
+    Only assigns a lane where:
+      - segment_type == 'lane'  (turns have no car_lane_d_bnd)
+      - in_bike_lane is 0 or NaN  (not inside the bike lane)
+      - the segment has a car_lane_d_bnd entry
+      - d_native falls within one of the (d_lb - tol, d_ub + tol) bins
+
+    Parameters
+    ----------
+    df : DataFrame — needs 'segment_id', 'segment_type', 'd_native',
+         'in_bike_lane' columns (schema above)
+    segment_registry : dict — 'lane' entries may carry
+         'car_lane_d_bnd' = {lane_idx: (d_lb, d_ub), ...}
+    tol : float — lateral tolerance [m] expanding each lane's bounds
+         outward, to absorb GPS/matching noise near lane dividers.
+         Set to 0.0 for exact bounds. Overlapping expanded bins (tol
+         wide enough to bridge adjacent lanes) resolve to whichever
+         lane_idx is iterated last — see note below.
+
+    Returns
+    -------
+    df : copy of input with new 'car_lane_idx' column (Int64, <NA>
+         where not applicable / no bin matched)
+    """
+    df = df.copy()
+    df['car_lane_idx'] = pd.array([pd.NA] * len(df), dtype='Int64')
+
+    not_in_bike = df['in_bike_lane'].isna() | (df['in_bike_lane'] == 0)
+    eligible    = not_in_bike & (df['segment_type'] == 'lane')
+
+    for seg_id in df.loc[eligible, 'segment_id'].unique():
+        car_lane_d_bnd = segment_registry.get(seg_id, {}).get('car_lane_d_bnd')
+        if not car_lane_d_bnd:
+            continue
+
+        seg_mask = eligible & (df['segment_id'] == seg_id)
+
+        for lane_idx, (d_lb, d_ub) in car_lane_d_bnd.items():
+            lane_mask = seg_mask & df['d_native'].between(
+                d_lb - tol, d_ub + tol, inclusive='left'
+            )
+            df.loc[lane_mask, 'car_lane_idx'] = lane_idx
+
+    n_assigned = df['car_lane_idx'].notna().sum()
+    print(f"car lane membership: {n_assigned}/{eligible.sum()} eligible rows assigned "
+          f"({len(df)} total rows, tol={tol} m)")
+
+    return df

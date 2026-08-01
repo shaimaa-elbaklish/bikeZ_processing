@@ -273,15 +273,24 @@ SEG_DEFS = [
     # ── Röntgenstrasse ───────────────────────────────────────────────────────
     {'seg_key': 'Roentgenstr_EB', 'geometry_key': 'Roentgenstr',
      'direction': 'EB', 'mode': 'shared', 'bike_lane': {'w_bike': 1.5},
-     'd_left': 1.0, 'd_right': 18.0},
+     'd_left': 1.0, 'd_right': 18.0, 
+     'car_lane_d_bnd': {
+         1: (0.0, 3.25),
+     }},
     {'seg_key': 'Roentgenstr_WB', 'geometry_key': 'Roentgenstr',
      'direction': 'WB', 'mode': 'shared', 'bike_lane': {'w_bike': 1.5},
-     'd_left': 1.0, 'd_right': 12.0},
+     'd_left': 1.0, 'd_right': 12.0, 
+     'car_lane_d_bnd': {
+         1: (-3.25, 0.0),
+     }},
  
     # ── Zollstrasse ─────────────────────────────────────────────────────────
     {'seg_key': 'Zollstr_EB', 'geometry_key': 'Zollstr',
      'direction': 'EB', 'mode': 'shared', 'bike_lane': None,
-     'd_left': 1.0, 'd_right': 18.0},
+     'd_left': 1.0, 'd_right': 18.0, 
+     'car_lane_d_bnd': {
+         1: (-4.25, -0.5),
+     }},
     {'seg_key': 'Zollstr_WB', 'geometry_key': 'Zollstr',
      'direction': 'WB', 'mode': 'bike', 'bike_lane': {'w_bike': 2.0},
      'd_left': 2.0, 'd_right': 8.0},
@@ -289,18 +298,31 @@ SEG_DEFS = [
     # ── Langstrasse North ────────────────────────────────────────────────────
     {'seg_key': 'LangstrN_NB', 'geometry_key': 'LangstrN',
      'direction': 'NB', 'mode': 'shared', 'bike_lane': None,
-     'd_left': 1.0, 'd_right': 8.0},
+     'd_left': 1.0, 'd_right': 8.0,
+     'car_lane_d_bnd': {
+         1: (-3.5, 0.0),
+     }},
     {'seg_key': 'LangstrN_SB', 'geometry_key': 'LangstrN',
      'direction': 'SB', 'mode': 'shared', 'bike_lane': None,
-     'd_left': 3.0, 'd_right': 8.0},
+     'd_left': 3.0, 'd_right': 8.0,
+     'car_lane_d_bnd': {
+         1: (0.0, 4.0),
+     }},
  
     # ── Langstrasse South ────────────────────────────────────────────────────
     {'seg_key': 'LangstrS_NB', 'geometry_key': 'LangstrS',
      'direction': 'NB', 'mode': 'shared', 'bike_lane': {'w_bike': 2.5},
-     'd_left': 3.0, 'd_right': 11.0},
+     'd_left': 3.0, 'd_right': 11.0, 
+     'car_lane_d_bnd': {
+         1: (-1.25, -4.5),
+         2: (-1.25, 2.1),
+     }},
     {'seg_key': 'LangstrS_SB', 'geometry_key': 'LangstrS',
      'direction': 'SB', 'mode': 'shared', 'bike_lane': {'w_bike': 2.5},
-     'd_left': 1.0, 'd_right': 12.0},
+     'd_left': 1.0, 'd_right': 12.0, 
+     'car_lane_d_bnd': {
+         1: (2.0, 5.5),
+     }},
  
     # ── Mattengasse ──────────────────────────────────────────────────────────
     {'seg_key': 'Matteng_SB', 'geometry_key': 'Matteng',
@@ -568,4 +590,11 @@ m = create_registry_map(
     geometry_store, segment_registry, movement_registry,
     gdf_swisstopo,
     save_path=f'../maps/registry_{date}_{intersection}_{code}.html',
+)
+
+m = create_registry_map(
+    geometry_store, segment_registry, movement_registry,
+    gdf_swisstopo,
+    base_map_src='gis-zh',
+    save_path=f'../maps/registry_{date}_{intersection}_{code}_gis.html',
 )

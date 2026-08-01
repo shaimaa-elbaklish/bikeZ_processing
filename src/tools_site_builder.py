@@ -646,6 +646,7 @@ def build_segment_registry(geometry_store, seg_defs):
             'd_left':           d_left,
             'd_right':          d_right,
             'd_max':            max(d_left, d_right),
+            'car_lane_d_bnd':     dict(sd.get('car_lane_d_bnd', {})),   # <-- new
             'validity_polygon': validity_poly,
         }
  

@@ -510,6 +510,12 @@ def create_registry_map(geometry_store, segment_registry, movement_registry,
                                 x_offset, y_offset)
     
     # =========================================================================
+    # GROUP 0c — Car Lane Corridors
+    # =========================================================================
+    add_car_lane_layer_folium(m, geometry_store, segment_registry,
+                           x_offset, y_offset)
+    
+    # =========================================================================
     # GROUP 0c — Intersection area polygons (from geometry_store)
     # One FeatureGroup per intersection_area_* key.
     # These are the computed polygons (built from s_change normal lines),
@@ -917,4 +923,76 @@ def add_bike_lane_layer_folium(m, geometry_store, segment_registry,
     fg_bike_computed.add_to(m)
     return m
 
+
+def add_car_lane_layer_folium(m, geometry_store, segment_registry,
+                               x_offset, y_offset,
+                               n_pts=50, color='#636EFA', show=False):
+    """
+    Adds a 'Car lanes (defined)' FeatureGroup to an existing folium map,
+    shading each hand-tuned car lane in segment_registry[...]['car_lane_d_bnd']
+    as a filled band of constant lateral width alongside the centerline.
+
+    car_lane_d_bnd convention: {lane_idx: (d_lb, d_ub)}, d in metres,
+    in NATIVE SPLINE COORDINATES — the same raw left-normal frame used by
+    _spline_sd_to_latlon / the bike lane boundary splines. NOT the
+    travel-direction-relative frame used by d_left/d_right. No sign
+    flip needed regardless of is_forward.
+
+    Parameters
+    ----------
+    m : folium.Map — map to add the layer to (mutated in place)
+    geometry_store, segment_registry : same as create_registry_map
+    x_offset, y_offset : from geometry_store
+    n_pts  : samples along each segment's s-domain
+    color  : lane fill/line color
+    show   : whether the layer is visible by default
+
+    Returns
+    -------
+    m : same map, for chaining
+    """
+    fg_car_lanes = folium.FeatureGroup(name='Car lanes (defined)', show=show)
+
+    for seg_key, entry in segment_registry.items():
+        if entry['type'] != 'lane':
+            continue
+
+        car_lane_d_bnd = entry.get('car_lane_d_bnd')
+        if not car_lane_d_bnd:
+            continue
+
+        geom_key            = entry['geometry_key']
+        geo                 = geometry_store[geom_key]
+        tck, unew, cum_dist = geo['spline']
+        L                   = geo['total_length']
+        s_change            = geo.get('s_change')
+
+        # same s-domain rule as build_segment_registry (choose longer arm)
+        if s_change is not None:
+            s_start, s_end = (0.0, s_change) if s_change >= L - s_change \
+                              else (s_change, L)
+        else:
+            s_start, s_end = 0.0, L
+
+        s_vals = np.linspace(s_start, s_end, n_pts)
+
+        for lane_idx, (d_lb, d_ub) in car_lane_d_bnd.items():
+            d_lb_arr = np.full_like(s_vals, d_lb)
+            d_ub_arr = np.full_like(s_vals, d_ub)
+
+            latlon_lb = _spline_sd_to_latlon(tck, unew, cum_dist, s_vals,
+                                              d_lb_arr, x_offset, y_offset)
+            latlon_ub = _spline_sd_to_latlon(tck, unew, cum_dist, s_vals,
+                                              d_ub_arr, x_offset, y_offset)
+
+            band = latlon_lb + latlon_ub[::-1] + [latlon_lb[0]]
+            folium.Polygon(
+                locations=band,
+                color=color, weight=1, opacity=0.6,
+                fill=True, fill_color=color, fill_opacity=0.15,
+                tooltip=f'{seg_key} lane {lane_idx}  d∈[{d_lb:.2f}, {d_ub:.2f}] m',
+            ).add_to(fg_car_lanes)
+
+    fg_car_lanes.add_to(m)
+    return m
 
