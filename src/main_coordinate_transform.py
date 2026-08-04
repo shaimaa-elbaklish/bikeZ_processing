@@ -143,8 +143,8 @@ for bike_id in tqdm(unique_ids, desc=f"Processing Coordinate Transform on {mode}
     else:
         mod_df = pd.concat((mod_df, bike_df), ignore_index=True)
 
-# Assign car lane membership
-mod_df = add_car_lane_membership(mod_df, segment_registry, tol=0.25)
+# # Assign car lane membership
+# mod_df = add_car_lane_membership(mod_df, segment_registry, tol=0.25)
 
 if SUBSAMPLED:
     filename = f"location_{loc_num}/{loc_num}_{mode}s_{date}_{timeslot}_lane.csv"

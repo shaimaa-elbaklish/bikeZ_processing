@@ -14,6 +14,7 @@ Submitted to:   JOURNAL
 import pytz
 import numpy as np
 
+from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Tuple, Dict
 
@@ -120,6 +121,62 @@ class BikeZ_Config:
         ('09', 'D2', 'F'): 10,
         ('09', 'D2', 'I'): 13,
     })
+    avail_timeslots_by_location: Dict = field(default_factory=lambda: {
+        2: {
+            "AM": [f"AM{i}" for i in range(1, 7)],
+            "PM": [f"PM{i}" for i in range(1, 7)],
+        },
+        3: {
+            "AM": [f"AM{i}" for i in range(1, 7)],
+            "PM": [f"PM{i}" for i in range(1, 7)],
+        },
+        4: {
+            "A": [f"AM{i}" for i in range(1, 7)] + [f"PM{i}" for i in range(1, 7)],
+            "B": [f"PM{i}" for i in range(1, 7)],
+        },
+        5: {
+            "G": [f"AM{i}" for i in range(1, 7)],
+            "C": [f"AM{i}" for i in range(1, 7)] + [f"PM{i}" for i in range(1, 7)],
+        },
+        6: {"A": [f"AM{i}" for i in range(1, 7)]},
+        7: {"B": [f"AM{i}" for i in range(1, 7)]},
+        8: {"C": [f"PM{i}" for i in range(1, 7)]},
+        9: {"E": [f"PM{i}" for i in range(1, 7)]},
+        10: {"F": [f"AM{i}" for i in range(1, 7)]},
+        11: {"G": [f"AM{i}" for i in range(1, 7)]},
+        12: {"H": [f"PM{i}" for i in range(1, 4)]},
+        13: {"I": [f"PM{i}" for i in range(1, 4)]},
+    })
+    date_location_timeslot_map: Dict[Tuple[str, int, str], Tuple[str, str]] = field(
+        init=False, default_factory=dict
+    )
+
+    def __post_init__(self):
+        for date, intersections in self.avail_timeslots.items():
+            month = date[5:7]  # "2025-06-16" -> "06"
+            for (intersection, code), timeslots in intersections.items():
+                location = self.location_map[(month, intersection, code)]
+                for slot in timeslots:
+                    key = (date, location, slot)
+                    if key in self.date_location_timeslot_map:
+                        existing = self.date_location_timeslot_map[key]
+                        raise ValueError(
+                            f"Duplicate mapping for {key}: "
+                            f"{existing} vs {(intersection, code)}"
+                        )
+                    self.date_location_timeslot_map[key] = (intersection, code)
+
+    def get_intersection_code(
+        self, date: str, location: int, timeslot: str
+    ) -> Tuple[str, str]:
+        """Look up (intersection, code) for a given date, location, and timeslot."""
+        try:
+            return self.date_location_timeslot_map[(date, location, timeslot)]
+        except KeyError:
+            raise KeyError(
+                f"No intersection/code found for "
+                f"date={date!r}, location={location!r}, timeslot={timeslot!r}"
+            )
 
 
 # #############################################################################

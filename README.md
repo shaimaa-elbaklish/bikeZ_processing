@@ -1,5 +1,11 @@
 # BikeZ-ETH Processing
 
+<p align="center">
+  <a href="dashboard/output/full_dashboard.html"><img src="https://img.shields.io/badge/-📊_Interactive_Dashboard-1B2430?style=for-the-badge" alt="Dashboard"></a>
+  <a href="https://www.bikez.ethz.ch/"><img src="https://img.shields.io/badge/-🌐_Project_Website-2E9E44?style=for-the-badge" alt="Website"></a>
+  <a href="src/tutorial.ipynb"><img src="https://img.shields.io/badge/-📓_Data_Usage_Tutorial-D97A2E?style=for-the-badge" alt="Tutorial"></a>
+</p>
+
 ## Table of Contents
 
 - [Installation](#installation)
@@ -10,6 +16,7 @@
     - [Lane Coordinate Transformation](#mobilysis-data-processing-lane-coordinate-transformation)
 - **Data Visualization**
     - [HTML Animation Tools](#data-visualization-tools)
+    - [Interactive Dashboard](dashboard/output/full_dashboard.html)
 - **Usage Examples**
     - [Tutorial](src/tutorial.ipynb)
 
@@ -48,7 +55,7 @@ This project was developed on Windows (win-64) with **Python 3.13**, and has als
 ## Setup and Configuration
 The BikeZ-ETH dataset configuration settings are summarized in the `BikeZ_Config` dataclass in `_constant.py` file.
 
-**Change the root path of the data directory, i.e. the variables `dir_root` and `data_root`.**
+**Change the root path of the data directory, i.e. the variables `dir_root`, `data_root`, and `subsampled_data_root`.**
 ```python
 @dataclass
 class BikeZ_Config:

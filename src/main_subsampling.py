@@ -94,7 +94,7 @@ del df_other
 gc.collect()
 
 
-datetime_anchor = max(ref_datetime, ref_datetime_other)   # pick one common phase reference
+datetime_anchor = min(ref_datetime, ref_datetime_other)   # pick one common phase reference
 df['time']      = df['datetime'].apply(lambda x: np.round((x - datetime_anchor).total_seconds(), decimals=3))
 df = df.sort_values(by=['veh_id', 'time'], ascending=True)
 
