@@ -18,9 +18,9 @@
 - **Data Visualization**
     - [HTML Animation Tools](#data-visualization-tools)
     - [Interactive Dashboard](dashboard/output/full_dashboard.html)
+    - [Visualization Tutorial](src/viz_tutorial.ipynb)
 - **Usage Examples**
     - [Tutorial](src/tutorial.ipynb)
-    - [Visualization Tutorial](src/viz_tutorial.ipynb)
 
 
 ## Installation
