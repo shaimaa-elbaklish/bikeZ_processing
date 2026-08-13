@@ -33,7 +33,7 @@ from tools_subsampling import subsample_all
 # Configuration
 BikeZ_Config = BikeZ_Config()
 
-parser = argparse.ArgumentParser(description="EKF+Gap Inference for BikeZ trajectories")
+parser = argparse.ArgumentParser(description="Down-sampling for BikeZ trajectories")
 parser.add_argument("date",          type=str, help="Date string, e.g. 2025-06-16")
 parser.add_argument("mode",          type=str, help="Mode: bike or vehicle")
 parser.add_argument("intersection",  type=str, help="Intersection ID, e.g. D3")

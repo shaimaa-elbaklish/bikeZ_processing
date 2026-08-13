@@ -50,6 +50,7 @@ from tools_site_builder import (
     register_geometries,
     build_segment_registry,
     add_bike_lane_boundaries,
+    add_car_lane_boundaries,
     build_turns,
     build_intersection_polygon,
     build_movement_registry,
@@ -76,13 +77,18 @@ X_2056_offset = XY_2056_Bounds[0][0]
 Y_2056_offset = XY_2056_Bounds[1][0]
 
 # Site constants
-kml_path      = '../maps/from_swisstopo/September_D2I.kml'
-save_path     = f'../data/registry_{date}_{intersection}_{code}.pkl'
-max_chain_len = 3
+kml_path       = '../maps/from_swisstopo/September_D2I.kml'
+kml_path_lanes = '../maps/from_swisstopo/September_D2I_CarLanes.kml'
+save_path      = f'../data/registry_{date}_{intersection}_{code}.pkl'
+max_chain_len  = 3
 
 
 # Share Link: https://s.geo.admin.ch/ijzem4yn8y7c
 # Edit Link: https://s.geo.admin.ch/8dguwea3mh0r
+
+# Car Lanes:
+# Share Link: https://s.geo.admin.ch/hpen89rdmyyt
+# Edit Link: https://s.geo.admin.ch/y4d8prkhvqop
 
 
 # #############################################################################
@@ -286,6 +292,10 @@ gdf_bike_boundaries = gdf_swisstopo[
 add_bike_lane_boundaries(segment_registry, geometry_store, gdf_bike_boundaries)
 
 
+print("--- Step 2c: project car lane polygons and boundaries ---")
+gdf_car_lane_polygons = gpd.read_file(kml_path_lanes, driver='KML')
+add_car_lane_boundaries(segment_registry, geometry_store, gdf_car_lane_polygons)
+
 # =============================================================================
 # PHASE 3: build_turns
 
@@ -456,4 +466,11 @@ m = create_registry_map(
     geometry_store, segment_registry, movement_registry,
     gdf_swisstopo,
     save_path=f'../maps/registry_{date}_{intersection}_{code}.html',
+)
+
+m = create_registry_map(
+    geometry_store, segment_registry, movement_registry,
+    gdf_swisstopo,
+    base_map_src='gis-zh',
+    save_path=f'../maps/registry_location{loc_num}.html',
 )

@@ -84,6 +84,8 @@ max_chain_len = 3
 # Share Link: https://s.geo.admin.ch/v6yysdm0qxh2
 # Edit Link: https://s.geo.admin.ch/7aqsyld1sgfe
 
+# No Car Lane Markings
+
 # #############################################################################
 # MAIN
 # #############################################################################
@@ -462,4 +464,11 @@ m = create_registry_map(
     geometry_store, segment_registry, movement_registry,
     gdf_swisstopo,
     save_path=f'../maps/registry_{date}_{intersection}_{code}.html',
+)
+
+m = create_registry_map(
+    geometry_store, segment_registry, movement_registry,
+    gdf_swisstopo,
+    base_map_src='gis-zh',
+    save_path=f'../maps/registry_location{loc_num}.html',
 )

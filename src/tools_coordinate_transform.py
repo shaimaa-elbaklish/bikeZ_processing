@@ -21,7 +21,7 @@ import matplotlib.pyplot as plt
 
 from pyproj import Transformer
 from pyclothoids import Clothoid, SolveG2
-from shapely.geometry import LineString, Point
+from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import transform, split, snap
 from scipy.interpolate import splprep, splev, interp1d
 from scipy.optimize import minimize_scalar
@@ -30,6 +30,23 @@ from numpy.lib.stride_tricks import as_strided
 ###############################################################################
 # FUNCTIONS
 ###############################################################################
+def _to_local_xy_polygon(polygon_wgs84, x_offset, y_offset):
+    """Transform a WGS84 Polygon to the local EPSG:2056-offset frame
+    used by geometry_store splines."""
+    transformer_to_2056 = Transformer.from_crs(
+        "EPSG:4326", "EPSG:2056", always_xy=True
+    )
+    coords_local = [
+        (x - x_offset, y - y_offset)
+        for x, y in (transformer_to_2056.transform(c[0], c[1])
+                     for c in polygon_wgs84.exterior.coords)
+    ]
+    poly = Polygon(coords_local)
+    if not poly.is_valid:
+        poly = poly.buffer(0)
+    return poly
+
+
 def fit_roadway_centerline_spline(centerline_coords: list, smoothing: float = 0, 
                                   coordsys: str = 'latlon', x_offset: float = 0,
                                   y_offset: float = 0):

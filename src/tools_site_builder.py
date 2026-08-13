@@ -59,6 +59,7 @@ Design decisions
 # IMPORTS
 # #############################################################################
 import os
+import re
 import sys
 import pickle
 import warnings
@@ -72,6 +73,7 @@ import xml.etree.ElementTree as ET
 
 from datetime import date as _date
 from scipy.interpolate import splev
+from scipy.interpolate import interp1d
 from shapely.ops import linemerge
 from shapely.ops import unary_union
 from shapely.geometry import LineString
@@ -79,6 +81,7 @@ from shapely.geometry import MultiPoint
 from shapely.geometry import Polygon
 
 from tools_coordinate_transform import (
+    _to_local_xy_polygon,
     densify_linestring,
     fit_roadway_centerline_spline,
     convert_xy2056_to_roadway_coordinates,
@@ -710,6 +713,149 @@ def add_bike_lane_boundaries(segment_registry, geometry_store,
         n_found += 1
  
     print(f"\nStep 2b complete: {n_found} boundary/boundaries projected ✓\n")
+    
+
+def _d_bounds_from_polygon(polygon_local, tck, unew, cum_dist,
+                            ds=0.5, d_search=15.0):
+    """
+    Slice a car-lane polygon (local XY) with the centerline's normal
+    cross-sections to derive d_lb(s), d_ub(s).
+
+    Returns
+    -------
+    d_lb_spline, d_ub_spline : scipy interp1d
+    s_domain                 : (s_min, s_max)
+    None, None, None if the polygon is not single-valued in s anywhere
+    usable, or has no overlap with the centerline.
+    """
+    s_vtx = []
+    for x, y in polygon_local.exterior.coords:
+        _, _, _, s_i, _ = convert_xy2056_to_roadway_coordinates(
+            np.array([x, y]), tck, unew, cum_dist, 0.0, 0.0
+        )
+        s_vtx.append(s_i)
+
+    if not s_vtx:
+        return None, None, None
+
+    s_min = max(0.0,        min(s_vtx) - 2 * ds)
+    s_max = min(cum_dist[-1], max(s_vtx) + 2 * ds)
+    s_grid = np.arange(s_min, s_max, ds)
+
+    s_valid, d_lb_vals, d_ub_vals = [], [], []
+    n_multi = 0
+
+    for s in s_grid:
+        u = np.interp(s, cum_dist, unew)
+        x0, y0 = splev(u, tck, der=0)
+        dx, dy = splev(u, tck, der=1)
+        norm   = np.hypot(dx, dy)
+        if norm < 1e-12:
+            continue
+        nx, ny = -dy / norm, dx / norm
+
+        cross = LineString([(x0 - nx * d_search, y0 - ny * d_search),
+                             (x0 + nx * d_search, y0 + ny * d_search)])
+        inter = polygon_local.intersection(cross)
+        if inter.is_empty:
+            continue
+
+        if inter.geom_type == 'MultiLineString':
+            n_multi += 1
+            continue   # lane not single-valued in s at this cross-section
+        if inter.geom_type == 'Point':
+            continue   # tangent graze — no width here
+
+        coords = list(inter.coords)
+        d_vals = [(cx - x0) * nx + (cy - y0) * ny for cx, cy in coords]
+        s_valid.append(s)
+        d_lb_vals.append(min(d_vals))
+        d_ub_vals.append(max(d_vals))
+
+    if n_multi > 0:
+        print(f"    [WARN] {n_multi}/{len(s_grid)} cross-section(s) "
+              f"not single-valued in s — d_lb(s)/d_ub(s) skipped there")
+
+    if len(s_valid) < 2:
+        return None, None, None
+
+    d_lb_spline = interp1d(s_valid, d_lb_vals, kind='linear',
+                            bounds_error=False,
+                            fill_value=(d_lb_vals[0], d_lb_vals[-1]))
+    d_ub_spline = interp1d(s_valid, d_ub_vals, kind='linear',
+                            bounds_error=False,
+                            fill_value=(d_ub_vals[0], d_ub_vals[-1]))
+    return d_lb_spline, d_ub_spline, (s_valid[0], s_valid[-1])
+
+
+def add_car_lane_boundaries(segment_registry, geometry_store,
+                             gdf_car_lane_polygons):
+    """
+    Attach car lane boundary polygons (and derived d_lb(s)/d_ub(s)
+    bounds) to segment_registry entries.
+
+    KML features must have Description == '<seg_key>_CarL<num>',
+    e.g. 'Roentgenstr_EB_CarL1', 'Roentgenstr_EB_CarL2' — a segment
+    may have multiple car lanes.
+
+    Populates, per matched lane:
+        entry['car_lane_d_bnd'][lane_id] = {
+            'polygon':   Polygon              # local XY frame
+            'd_bounds':  (d_lb, d_ub)         # each a scipy interp1d,
+                                               # or None if unresolved
+            's_domain':  (s_min, s_max) | None
+        }
+    """
+    x_offset = geometry_store['x_offset']
+    y_offset = geometry_store['y_offset']
+    n_found  = 0
+    n_total  = 0
+
+    for seg_key, entry in segment_registry.items():
+        # if not entry.get('car_lane_d_bnd'):
+        #     continue
+
+        geom_key             = entry['geometry_key']
+        tck, unew, cum_dist  = geometry_store[geom_key]['spline']
+
+        pattern = re.compile(rf'^{re.escape(seg_key)}_CarL(\d+)$')
+        rows = gdf_car_lane_polygons[
+            gdf_car_lane_polygons['Description'].str.match(pattern)
+        ]
+
+        if len(rows) == 0:
+            print(f"  [WARN] no KML car lane polygon(s) for '{seg_key}' — stub kept")
+            continue
+
+        for _, row in rows.iterrows():
+            lane_num = pattern.match(row['Description']).group(1)
+            lane_id  = f"CarL{lane_num}"
+            n_total += 1
+
+            poly_local = _to_local_xy_polygon(row.geometry, x_offset, y_offset)
+            d_lb, d_ub, s_domain = _d_bounds_from_polygon(
+                poly_local, tck, unew, cum_dist
+            )
+
+            entry['car_lane_d_bnd'][int(lane_num)] = {
+                'polygon':  poly_local,
+                'd_bounds': (d_lb, d_ub),
+                's_domain': s_domain,
+            }
+
+            if d_lb is not None:
+                print(f"  {seg_key} [{lane_id}]: s∈[{s_domain[0]:.1f}, "
+                      f"{s_domain[1]:.1f}] m  "
+                      f"d_lb∈[{d_lb(s_domain[0]):.2f}, {d_lb(s_domain[1]):.2f}] m  "
+                      f"d_ub∈[{d_ub(s_domain[0]):.2f}, {d_ub(s_domain[1]):.2f}] m")
+                n_found += 1
+            else:
+                print(f"  [WARN] {seg_key} [{lane_id}]: polygon stored, "
+                      f"but d_lb(s)/d_ub(s) could not be resolved "
+                      f"(no single-valued overlap with centerline)")
+
+    print(f"\ncar lane boundaries: {n_found}/{n_total} lane(s) resolved "
+          f"with d(s) bounds ✓\n")
 
 # #############################################################################
 # PHASE 3: build_turns

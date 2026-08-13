@@ -435,10 +435,10 @@ def create_registry_map(geometry_store, segment_registry, movement_registry,
     if gdf_swisstopo is not None:
         DIRECTION_SUFFIXES = ('_NB', '_SB', '_EB', '_WB', '_NE', '_SW')
      
-        fg_poly  = folium.FeatureGroup(name='KML — Intersection area',  show=True)
+        fg_poly  = folium.FeatureGroup(name='KML — Intersection area',  show=False)
         fg_stop  = folium.FeatureGroup(name='KML — Stop lines',         show=True)
         fg_yield = folium.FeatureGroup(name='KML — Yield lines',        show=True)
-        fg_bike  = folium.FeatureGroup(name='KML — Bike lane boundaries', show=True)
+        fg_bike  = folium.FeatureGroup(name='KML — Bike lane boundaries', show=False)
      
         for _, row in gdf_swisstopo.iterrows():
             desc = row['Description']
@@ -649,7 +649,7 @@ def create_registry_map(geometry_store, segment_registry, movement_registry,
         L                   = geo['total_length']
         s_change            = geo['s_change']
  
-        fg = folium.FeatureGroup(name=f'Lane: {seg_key}', show=True)
+        fg = folium.FeatureGroup(name=f'Lane: {seg_key}', show=False)
  
         # Validity polygon
         for ring in _polygon_coords(validity_poly, x_offset, y_offset):
@@ -924,49 +924,72 @@ def add_bike_lane_layer_folium(m, geometry_store, segment_registry,
     return m
 
 
+def _car_lane_polygon_to_latlon(polygon_local, x_offset, y_offset):
+    """Local-XY (2056-offset) Polygon exterior → [(lat, lon), ...] for folium."""
+    transformer_to_latlon = Transformer.from_crs(
+        "EPSG:2056", "EPSG:4326", always_xy=True
+    )
+    xs = np.array(polygon_local.exterior.xy[0]) + x_offset
+    ys = np.array(polygon_local.exterior.xy[1]) + y_offset
+    lon, lat = transformer_to_latlon.transform(xs, ys)
+    return list(zip(lat, lon))
+
+
 def add_car_lane_layer_folium(m, geometry_store, segment_registry,
                                x_offset, y_offset,
                                n_pts=50, color='#636EFA', show=False):
     """
     Adds a 'Car lanes (defined)' FeatureGroup to an existing folium map,
-    shading each hand-tuned car lane in segment_registry[...]['car_lane_d_bnd']
-    as a filled band of constant lateral width alongside the centerline.
+    shading each car lane in segment_registry[...]['car_lane_d_bnd'].
 
-    car_lane_d_bnd convention: {lane_idx: (d_lb, d_ub)}, d in metres,
-    in NATIVE SPLINE COORDINATES — the same raw left-normal frame used by
-    _spline_sd_to_latlon / the bike lane boundary splines. NOT the
-    travel-direction-relative frame used by d_left/d_right. No sign
-    flip needed regardless of is_forward.
+    Each lane_idx entry can be EITHER:
+        (d_lb, d_ub)                  — constant-width tuple, in metres,
+                                         NATIVE SPLINE COORDINATES (the same
+                                         raw left-normal frame used by
+                                         _spline_sd_to_latlon / bike lane
+                                         boundary splines — NOT the
+                                         travel-direction-relative frame
+                                         used by d_left/d_right; no sign
+                                         flip needed regardless of
+                                         is_forward). Band is reconstructed
+                                         by sweeping the centerline.
+    OR
+        {'polygon': Polygon, ...}     — dict carrying an actual KML-derived
+                                         footprint (local XY, 2056-offset
+                                         frame, as produced by
+                                         add_car_lane_boundaries). Plotted
+                                         directly — no reconstruction from
+                                         d bounds, so it renders correctly
+                                         even for lanes at an angle to the
+                                         centerline. If 'polygon' is missing
+                                         or empty, falls back to 'd_bounds'
+                                         (d_lb(s), d_ub(s)) sampled over the
+                                         segment's s-domain, if present.
 
     Parameters
     ----------
     m : folium.Map — map to add the layer to (mutated in place)
     geometry_store, segment_registry : same as create_registry_map
     x_offset, y_offset : from geometry_store
-    n_pts  : samples along each segment's s-domain
+    n_pts  : samples along each segment's s-domain (constant/function cases)
     color  : lane fill/line color
     show   : whether the layer is visible by default
-
     Returns
     -------
     m : same map, for chaining
     """
     fg_car_lanes = folium.FeatureGroup(name='Car lanes (defined)', show=show)
-
     for seg_key, entry in segment_registry.items():
         if entry['type'] != 'lane':
             continue
-
         car_lane_d_bnd = entry.get('car_lane_d_bnd')
         if not car_lane_d_bnd:
             continue
-
         geom_key            = entry['geometry_key']
         geo                 = geometry_store[geom_key]
         tck, unew, cum_dist = geo['spline']
         L                   = geo['total_length']
         s_change            = geo.get('s_change')
-
         # same s-domain rule as build_segment_registry (choose longer arm)
         if s_change is not None:
             s_start, s_end = (0.0, s_change) if s_change >= L - s_change \
@@ -974,23 +997,54 @@ def add_car_lane_layer_folium(m, geometry_store, segment_registry,
         else:
             s_start, s_end = 0.0, L
 
-        s_vals = np.linspace(s_start, s_end, n_pts)
+        for lane_idx, lane_val in car_lane_d_bnd.items():
+            tooltip_prefix = f'{seg_key} lane {lane_idx}'
 
-        for lane_idx, (d_lb, d_ub) in car_lane_d_bnd.items():
-            d_lb_arr = np.full_like(s_vals, d_lb)
-            d_ub_arr = np.full_like(s_vals, d_ub)
+            # ── Option A: dict carrying a KML-derived polygon ──────────────
+            if isinstance(lane_val, dict):
+                poly_local = lane_val.get('polygon')
+                if poly_local is not None and not poly_local.is_empty:
+                    latlon = _car_lane_polygon_to_latlon(
+                        poly_local, x_offset, y_offset
+                    )
+                    folium.Polygon(
+                        locations=latlon,
+                        color=color, weight=1, opacity=0.6,
+                        fill=True, fill_color=color, fill_opacity=0.15,
+                        tooltip=f'{tooltip_prefix}  (KML polygon)',
+                    ).add_to(fg_car_lanes)
+                    continue
+
+                # No polygon stored — fall back to d_bounds functions, if any.
+                d_lb_fn, d_ub_fn = lane_val.get('d_bounds', (None, None))
+                if d_lb_fn is None or d_ub_fn is None:
+                    print(f"  [WARN] {tooltip_prefix}: no polygon and no "
+                          f"resolved d_bounds — skipped")
+                    continue
+                s_min, s_max = lane_val.get('s_domain', (s_start, s_end))
+                s_vals   = np.linspace(s_min, s_max, n_pts)
+                d_lb_arr = d_lb_fn(s_vals)
+                d_ub_arr = d_ub_fn(s_vals)
+                tooltip  = f'{tooltip_prefix}  (d(s) bounds)'
+
+            # ── Option B: plain (d_lb, d_ub) constant tuple ────────────────
+            else:
+                d_lb, d_ub = lane_val
+                s_vals   = np.linspace(s_start, s_end, n_pts)
+                d_lb_arr = np.full_like(s_vals, d_lb)
+                d_ub_arr = np.full_like(s_vals, d_ub)
+                tooltip  = f'{tooltip_prefix}  d∈[{d_lb:.2f}, {d_ub:.2f}] m'
 
             latlon_lb = _spline_sd_to_latlon(tck, unew, cum_dist, s_vals,
                                               d_lb_arr, x_offset, y_offset)
             latlon_ub = _spline_sd_to_latlon(tck, unew, cum_dist, s_vals,
                                               d_ub_arr, x_offset, y_offset)
-
             band = latlon_lb + latlon_ub[::-1] + [latlon_lb[0]]
             folium.Polygon(
                 locations=band,
                 color=color, weight=1, opacity=0.6,
                 fill=True, fill_color=color, fill_opacity=0.15,
-                tooltip=f'{seg_key} lane {lane_idx}  d∈[{d_lb:.2f}, {d_ub:.2f}] m',
+                tooltip=tooltip,
             ).add_to(fg_car_lanes)
 
     fg_car_lanes.add_to(m)

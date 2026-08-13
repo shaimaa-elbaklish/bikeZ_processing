@@ -143,17 +143,19 @@ for bike_id in tqdm(unique_ids, desc=f"Processing Coordinate Transform on {mode}
     else:
         mod_df = pd.concat((mod_df, bike_df), ignore_index=True)
 
-# # Assign car lane membership
-# mod_df = add_car_lane_membership(mod_df, segment_registry, tol=0.25)
+# Assign car lane membership
+mod_df = add_car_lane_membership(mod_df, segment_registry, tol=0.25)
 
+# Convert speeds from km/h to m/s
+speed_cols = ['speed_ekf', 's_dot', 'd_dot']
+mod_df[speed_cols] = mod_df[speed_cols] / 3.6
+
+# Save files
 if SUBSAMPLED:
     filename = f"location_{loc_num}/{loc_num}_{mode}s_{date}_{timeslot}_lane.csv"
     save_mod_df = mod_df.copy()
-    # retain only s_native/d_native
+    # Retain only s_native/d_native
     save_mod_df = save_mod_df.drop(columns=['s', 'd'])
-    # convert speeds from km/h to m/s
-    speed_cols = ['speed_ekf', 's_dot', 'd_dot']
-    save_mod_df[speed_cols] = save_mod_df[speed_cols] / 3.6
     save_mod_df.to_csv(subsampled_data_root + filename, index=False)
     del save_mod_df
     gc.collect()

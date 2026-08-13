@@ -7,7 +7,12 @@
   <a href="src/viz_tutorial.ipynb"><img src="https://img.shields.io/badge/-🗺️_Data_Visualization_Tutorial-6A4C93?style=for-the-badge" alt="Visualization Tutorial"></a>
 </p>
 
-## Table of Contents
+<p align="center">
+  <img src="./assets/global_pipeline.png" alt="Trajectory processing pipeline for BikeZ-ETH dataset." width="800"><br>
+  <em>Figure 1: Trajectory processing pipeline for the BikeZ-ETH dataset.</em>
+</p>
+
+## Contents
 
 - [Installation](#installation)
 - [Setup and Configuration](#setup-and-configuration)
@@ -17,10 +22,12 @@
     - [Lane Coordinate Transformation](#mobilysis-data-processing-lane-coordinate-transformation)
 - **Data Visualization**
     - [HTML Animation Tools](#data-visualization-tools)
-    - [Interactive Dashboard](dashboard/output/full_dashboard.html)
-    - [Visualization Tutorial](src/viz_tutorial.ipynb)
-- **Usage Examples**
-    - [Tutorial](src/tutorial.ipynb)
+    - [Interactive Dashboard ↗](dashboard/output/full_dashboard.html)
+- **Examples**
+    - [Data Usage Tutorial ↗](src/tutorial.ipynb)
+    - [Visualization Tutorial ↗](src/viz_tutorial.ipynb)
+- [Acknowledgements](#acknowledgements)
+- [Publications](#publications)
 
 
 ## Installation
@@ -230,14 +237,43 @@ The following output columns are added.
 Note: `(s_native, d_native, segment_id)` is the **invertible** triple $\rightarrow$ recovers `(x, y)`.
 
 ### Overview
-The lane coordinate transform maps raw GPS trajectories from global EPSG:2056 `(x, y)` coordinates to road-aligned `(s, d)` coordinates at each intersection. The transform is built on three registries, constructed once per site using `tools_site_builder.py` and saved as a pickle file:
+
+<!-- The lane coordinate transform maps raw GPS trajectories from global EPSG:2056 `(x, y)` coordinates to road-aligned `(s, d)` coordinates at each intersection. The transform is built on three registries, constructed once per site using `tools_site_builder.py` and saved as a pickle file. -->
+
+<!-- <div style="float: right; margin-left: 20px; width: 400px; text-align: center;">
+  <img src="./assets/site_building_registry.png" alt="Schematic diagram of the registry map layers." width="400"><br>
+  <em>Figure 2: Schematic diagram of the registry map layers.</em>
+</div> -->
+
+<!-- - **`geometry_store`** : one entry per physical road axis. Stores the B-spline fit to the road centerline, total arc length, stop/yield line positions (`s_stop`, `s_yield`, `s_change`), intersection area polygons, and local coordinate offsets.
+- **`segment_registry`** : one entry per directed travel segment (e.g. `LangstrS_NB`, `turn_LangstrS_NB_2_LangstrN_NB`). Stores segment type (`lane` or `turn`), travel direction, lateral validity bounds (`d_left`, `d_right`), validity polygon, and mode (`shared`, `bike`, or `car`). Also, contains bike lane details (`bike_lane`), as well as car lane lateral bounds (`car_lane_d_bnds`).
+- **`movement_registry`** : one entry per observable movement through the intersection (e.g. `LangstrN_SB_2_LangstrS_SB`). Each entry is an ordered sequence of `(segment_key, role)` pairs: approach lane $\rightarrow$ turn $\rightarrow$ departure lane.
+
+At runtime, `to_lane_coordinates` walks each trajectory through these registries sequentially, matching points to segments via polygon containment and spline projection, and computing the full `(s, d, s_dot, d_dot, s_ddot, d_ddot)` decomposition.
+
+**Segment key conventions:** lane segment keys follow `{Road}_{Direction}` (e.g. `LangstrS_NB`); turn segment keys follow `turn_{approach_seg}_2_{departure_seg}` (e.g. `turn_LangstrS_NB_2_LangstrN_NB`). All valid keys are listed in `segment_registry`. -->
+
+
+<table>
+<tr>
+<td>
+The lane coordinate transform maps raw GPS trajectories from global EPSG:2056 `(x, y)` coordinates to road-aligned `(s, d)` coordinates at each intersection. The transform is built on three registries, constructed once per site using `tools_site_builder.py` and saved as a pickle file.
+
 - **`geometry_store`** : one entry per physical road axis. Stores the B-spline fit to the road centerline, total arc length, stop/yield line positions (`s_stop`, `s_yield`, `s_change`), intersection area polygons, and local coordinate offsets.
-- **`segment_registry`** : one entry per directed travel segment (e.g. `LangstrS_NB`, `turn_LangstrS_NB_2_LangstrN_NB`). Stores segment type (`lane` or `turn`), travel direction, lateral validity bounds (`d_left`, `d_right`), validity polygon, and mode (`shared`, `bike`, or `car`).
+- **`segment_registry`** : one entry per directed travel segment (e.g. `LangstrS_NB`, `turn_LangstrS_NB_2_LangstrN_NB`). Stores segment type (`lane` or `turn`), travel direction, lateral validity bounds (`d_left`, `d_right`), validity polygon, and mode (`shared`, `bike`, or `car`). Also, contains bike lane details (`bike_lane`), as well as car lane lateral bounds (`car_lane_d_bnds`).
 - **`movement_registry`** : one entry per observable movement through the intersection (e.g. `LangstrN_SB_2_LangstrS_SB`). Each entry is an ordered sequence of `(segment_key, role)` pairs: approach lane $\rightarrow$ turn $\rightarrow$ departure lane.
 
 At runtime, `to_lane_coordinates` walks each trajectory through these registries sequentially, matching points to segments via polygon containment and spline projection, and computing the full `(s, d, s_dot, d_dot, s_ddot, d_ddot)` decomposition.
 
 **Segment key conventions:** lane segment keys follow `{Road}_{Direction}` (e.g. `LangstrS_NB`); turn segment keys follow `turn_{approach_seg}_2_{departure_seg}` (e.g. `turn_LangstrS_NB_2_LangstrN_NB`). All valid keys are listed in `segment_registry`.
+</td>
+<td width="500" align="center">
+  <img src="./assets/site_building_registry.png" alt="Schematic diagram of the registry map layers." width="400"><br>
+  <em>Figure 2: Schematic diagram of the registry map layers.</em>
+</td>
+</tr>
+</table>
+
 
 ### Forced matching and transformation
 When desired, the chain can be specified manually using `to_lane_coordinates_forced`:
@@ -331,3 +367,23 @@ where `%HISTORY_LENGTH%` (integer) is the number of history seconds to display b
 Output is saved to `../maps/timestamped_trajectories_ALL_map_<date>_<intersection>_<timeslot>_<code>_history<history_len>s.html`.
 
 ---
+
+## Acknowledgements
+
+We thank the organization *Pro Velo Kanton Zürich* for promoting the field experiment to recruit participants. Moreover, we thank the following supporters that facilitated the experiment on Baslerstrasse: Linghang Sun at ETH Zürich and Anastasia Psarou at Jagiellonian University.
+
+Research was funded by the "BikeZ: Model Suite for Mass Cycling as a Service Simulation" Innovation project supported by Innosuisse (grant agreement: 123.077 IP-SBM). We would also like to thank the advisory committee members of this project, Dr. Lukas Ambühl at Transcality AG, Dr. Athina Tympakianaki at Aimsun, and Dr. Manos Barmpounakis at MobiLysis Sàrl, for the insightful advice.
+
+## Publications
+
+```
+BikeZ-ETH: Multi-modal trajectory data and empirical analysis of urban traffic flow characteristics (2026).
+El-Baklish, S.K. and Ni, Y-C. and Ramseier, T. and Riehl, K. and Kouvelas, T. and Makridis, M.
+(To Be Submitted)
+```
+
+```
+Quantifying Bicycle Flow Efficiency: Inference of the Fundamental Diagram from Experimental Observations (2026).
+El-Baklish, S.K. and Ni, Y-C. and Riehl, K. and Kouvelas, T. and Makridis, M.
+(In Review in Nature Communications)
+```

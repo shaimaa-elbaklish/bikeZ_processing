@@ -2091,7 +2091,7 @@ def compute_travel_directed_s_d(bike_df, segment_registry, geometry_store):
 # =============================================================================
 # CAR LANE MEMBERSHIP
 # =============================================================================
-def add_car_lane_membership(df, segment_registry, tol=0.15):
+def add_car_lane_membership(df, segment_registry, tol=0.15, use_polygon=False):
     """
     Adds a 'car_lane_idx' column: the car lane index a row's point falls
     into, based on segment_registry[segment_id]['car_lane_d_bnd'].
@@ -2135,14 +2135,52 @@ def add_car_lane_membership(df, segment_registry, tol=0.15):
 
         seg_mask = eligible & (df['segment_id'] == seg_id)
 
-        for lane_idx, (d_lb, d_ub) in car_lane_d_bnd.items():
-            lane_mask = seg_mask & df['d_native'].between(
-                d_lb - tol, d_ub + tol, inclusive='left'
-            )
+        for lane_idx, lane_val in car_lane_d_bnd.items():
+            # Unwrap {'d_bounds':..., 'polygon':...} dict form, if present.
+            if isinstance(lane_val, dict):
+                d_lb, d_ub = lane_val.get('d_bounds', (None, None))
+                polygon    = lane_val.get('polygon')
+            else:
+                d_lb, d_ub = lane_val
+                polygon    = None
+                
+            if d_lb is None or d_ub is None:
+                continue   # unresolved bounds (e.g. polygon-only stub)
+
+            is_function = callable(d_lb) or callable(d_ub)
+            
+            # ── Case (b) + polygon check ────────────────────────────────
+            if use_polygon and polygon is not None and not polygon.is_empty:
+                import shapely.vectorized
+                
+                poly_buf = polygon.buffer(tol) if tol else polygon
+                x_arr = df.loc[seg_mask, 'x_ekf'].to_numpy()
+                y_arr = df.loc[seg_mask, 'y_ekf'].to_numpy()
+                inside = shapely.vectorized.contains(poly_buf, x_arr, y_arr)
+
+                lane_mask = seg_mask.copy()
+                lane_mask.loc[seg_mask] = inside
+
+            # ── Case (a)/(b) via d-band ──────────────────────────────────
+            else:
+                if is_function:
+                    s_arr = df.loc[seg_mask, 's_native'].to_numpy()
+                    d_lb_arr = d_lb(s_arr) if callable(d_lb) else np.full_like(s_arr, d_lb)
+                    d_ub_arr = d_ub(s_arr) if callable(d_ub) else np.full_like(s_arr, d_ub)
+                    d_arr    = df.loc[seg_mask, 'd_native'].to_numpy()
+                    inside   = (d_arr >= d_lb_arr - tol) & (d_arr < d_ub_arr + tol)
+
+                    lane_mask = seg_mask.copy()
+                    lane_mask.loc[seg_mask] = inside
+                else:
+                    lane_mask = seg_mask & df['d_native'].between(
+                        d_lb - tol, d_ub + tol, inclusive='left'
+                    )
+            
             df.loc[lane_mask, 'car_lane_idx'] = lane_idx
 
     n_assigned = df['car_lane_idx'].notna().sum()
     print(f"car lane membership: {n_assigned}/{eligible.sum()} eligible rows assigned "
-          f"({len(df)} total rows, tol={tol} m)")
+          f"({len(df)} total rows, tol={tol} m, use_polygon={use_polygon})")
 
     return df

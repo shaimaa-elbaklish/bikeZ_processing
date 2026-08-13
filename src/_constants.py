@@ -16,7 +16,7 @@ import numpy as np
 
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Tuple, Dict
+from typing import Tuple, Dict, List
 
 # #############################################################################
 # CONSTANTS: BIKE-Z
@@ -52,7 +52,7 @@ class BikeZ_Config:
     })
     avail_timeslots: Dict = field(default_factory=lambda: {
         "2025-06-16": {
-            ("D1", "A"): [f"AM{i}" for i in range(1, 7)] + [f"PM{i}" for i in range(1, 7)],
+            ("D1", "A"): [f"AM{i}" for i in range(1, 8)] + [f"PM{i}" for i in range(1, 7)],
             ("D2", "G"): [f"AM{i}" for i in range(1, 7)],
             ("D2", "C"): [f"PM{i}" for i in range(1, 7)],
             ("D3", "E"): [f"AM{i}" for i in range(1, 7)] + [f"PM{i}" for i in range(1, 7)],
@@ -121,32 +121,6 @@ class BikeZ_Config:
         ('09', 'D2', 'F'): 10,
         ('09', 'D2', 'I'): 13,
     })
-    avail_timeslots_by_location: Dict = field(default_factory=lambda: {
-        2: {
-            "AM": [f"AM{i}" for i in range(1, 7)],
-            "PM": [f"PM{i}" for i in range(1, 7)],
-        },
-        3: {
-            "AM": [f"AM{i}" for i in range(1, 7)],
-            "PM": [f"PM{i}" for i in range(1, 7)],
-        },
-        4: {
-            "A": [f"AM{i}" for i in range(1, 7)] + [f"PM{i}" for i in range(1, 7)],
-            "B": [f"PM{i}" for i in range(1, 7)],
-        },
-        5: {
-            "G": [f"AM{i}" for i in range(1, 7)],
-            "C": [f"AM{i}" for i in range(1, 7)] + [f"PM{i}" for i in range(1, 7)],
-        },
-        6: {"A": [f"AM{i}" for i in range(1, 7)]},
-        7: {"B": [f"AM{i}" for i in range(1, 7)]},
-        8: {"C": [f"PM{i}" for i in range(1, 7)]},
-        9: {"E": [f"PM{i}" for i in range(1, 7)]},
-        10: {"F": [f"AM{i}" for i in range(1, 7)]},
-        11: {"G": [f"AM{i}" for i in range(1, 7)]},
-        12: {"H": [f"PM{i}" for i in range(1, 4)]},
-        13: {"I": [f"PM{i}" for i in range(1, 4)]},
-    })
     date_location_timeslot_map: Dict[Tuple[str, int, str], Tuple[str, str]] = field(
         init=False, default_factory=dict
     )
@@ -177,6 +151,19 @@ class BikeZ_Config:
                 f"No intersection/code found for "
                 f"date={date!r}, location={location!r}, timeslot={timeslot!r}"
             )
+    
+    def get_available_dates_and_timeslots(self, location: int) -> Dict[str, List[str]]:
+        """Return {date: [timeslots]} for all dates a given location was recorded."""
+        result: Dict[str, List[str]] = {}
+        for (date, loc, slot) in self.date_location_timeslot_map:
+            if loc == location:
+                result.setdefault(date, []).append(slot)
+    
+        if not result:
+            raise KeyError(f"No dates found for location={location!r}")
+    
+        # sort timeslots within each date, and sort dates for stable output
+        return {date: sorted(result[date]) for date in sorted(result)}
 
 
 # #############################################################################
