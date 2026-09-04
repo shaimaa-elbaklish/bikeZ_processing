@@ -27,6 +27,7 @@
     - [Data Usage Tutorial ↗](src/tutorial.ipynb)
     - [Visualization Tutorial ↗](src/viz_tutorial.ipynb)
 - [Acknowledgements](#acknowledgements)
+- [Data Availability](#data-availability)
 - [Publications](#publications)
 
 
@@ -369,6 +370,14 @@ Output is saved to `../maps/timestamped_trajectories_ALL_map_<date>_<intersectio
 We thank the organization *Pro Velo Kanton Zürich* for promoting the field experiment to recruit participants. Moreover, we thank the following supporters that facilitated the experiment on Baslerstrasse: Linghang Sun at ETH Zürich and Anastasia Psarou at Jagiellonian University.
 
 Research was funded by the "BikeZ: Model Suite for Mass Cycling as a Service Simulation" Innovation project supported by Innosuisse (grant agreement: 123.077 IP-SBM). We would also like to thank the advisory committee members of this project, Dr. Lukas Ambühl at Transcality AG, Dr. Athina Tympakianaki at Aimsun, and Dr. Manos Barmpounakis at MobiLysis Sàrl, for the insightful advice.
+
+---
+
+## Data Availability
+
+BikeZ-ETH Dataset available on Zenodo via the DOI: [10.5281/zenodo.22089103](https://doi.org/10.5281/zenodo.22089103).
+
+---
 
 ## Publications
 
