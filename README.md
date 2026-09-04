@@ -262,7 +262,7 @@ The lane coordinate transform maps raw GPS trajectories from global EPSG:2056 `(
 
 </td>
 <td width="400" align="center" style="border: none; vertical-align: top;">
-  <img src="./assets/site_building_registry.png" alt="Schematic diagram of the registry map layers." width="400"><br>
+  <img src="./assets/site_building_registry.png" alt="Schematic diagram of the registry map layers." style="width: 100%; max-width: 400px;"><br>
   <em>Figure 2: Schematic diagram of the registry map layers.</em>
 </td>
 </tr>
