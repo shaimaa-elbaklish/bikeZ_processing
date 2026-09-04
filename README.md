@@ -1,7 +1,7 @@
 # BikeZ-ETH Data Post-Processing
 
 <p align="center">
-  <a href="dashboard/output/full_dashboard.html"><img src="https://img.shields.io/badge/-📊_Interactive_Dashboard-1B2430?style=for-the-badge" alt="Dashboard"></a>
+  <a href="https://shaimaa-elbaklish.github.io/bikeZ_processing/assets/dashboard.html"><img src="https://img.shields.io/badge/-📊_Interactive_Dashboard-1B2430?style=for-the-badge" alt="Dashboard"></a>
   <a href="https://www.bikez.ethz.ch/"><img src="https://img.shields.io/badge/-🌐_Project_Website-2E9E44?style=for-the-badge" alt="Website"></a>
   <a href="src/tutorial.ipynb"><img src="https://img.shields.io/badge/-📓_Data_Usage_Tutorial-D97A2E?style=for-the-badge" alt="Tutorial"></a>
   <a href="src/viz_tutorial.ipynb"><img src="https://img.shields.io/badge/-🗺️_Data_Visualization_Tutorial-6A4C93?style=for-the-badge" alt="Visualization Tutorial"></a>
@@ -22,7 +22,7 @@
     - [Lane Coordinate Transformation](#data-post-processing-lane-coordinate-transformation)
 - **Data Visualization**
     - [HTML Animation Tools](#data-visualization-tools)
-    - [Interactive Dashboard ↗](dashboard/output/full_dashboard.html)
+    - [Interactive Dashboard ↗](https://shaimaa-elbaklish.github.io/bikeZ_processing/assets/dashboard.html)
 - **Examples**
     - [Data Usage Tutorial ↗](src/tutorial.ipynb)
     - [Visualization Tutorial ↗](src/viz_tutorial.ipynb)
