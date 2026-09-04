@@ -3,7 +3,7 @@ TITLE OF PAPAER
 -------------------------------------------
 Authors:        Shaimaa El-Baklish
 Organization:   ETH Zürich, Switzerland, IVT - Institute for Transportation Planning and Systems
-Development:    2025
+Development:    2025-2026
 Submitted to:   JOURNAL
 -------------------------------------------
 """
@@ -20,10 +20,10 @@ warnings.filterwarnings("ignore")
 import numpy as np
 import pandas as pd
 
-from pyproj import Transformer
 from folium.plugins import TimestampedGeoJson
 
 from _constants import BikeZ_Config
+from tools_utils import _PROJ_2056_TO_LONLAT
 from tools_map_visualization import create_swisstopo_map
 
 # #############################################################################
@@ -64,14 +64,18 @@ Y_2056_offset = XY_2056_Bounds[1][0]
 # #############################################################################
 if SUBSAMPLED:
     mode = BikeZ_Config.avail_modes[0] # Bike
-    filename = f"location_{loc_num}/{loc_num}_{mode}s_{date}_{timeslot}.csv"
-    df_bik = pd.read_csv(subsampled_data_root + filename)
+    # filename = f"location_{loc_num}/{loc_num}_{mode}s_{date}_{timeslot}.csv"
+    # df_bik = pd.read_csv(subsampled_data_root + filename)
+    filename = f"location_{loc_num}/{loc_num}_{mode}s_{date}_{timeslot}.parquet"
+    df_bik = pd.read_parquet(subsampled_data_root + filename)
     df_bik['datetime'] = pd.to_datetime(df_bik['datetime'], format='ISO8601')
     center_lat, center_lon = df_bik["lat_ekf"].mean(), df_bik["lon_ekf"].mean()
     
     mode = BikeZ_Config.avail_modes[1] # Vehicle
-    filename = f"location_{loc_num}/{loc_num}_{mode}s_{date}_{timeslot}.csv"
-    df_veh = pd.read_csv(subsampled_data_root + filename)
+    # filename = f"location_{loc_num}/{loc_num}_{mode}s_{date}_{timeslot}.csv"
+    # df_veh = pd.read_csv(subsampled_data_root + filename)
+    filename = f"location_{loc_num}/{loc_num}_{mode}s_{date}_{timeslot}.parquet"
+    df_veh = pd.read_parquet(subsampled_data_root + filename)
     df_veh['datetime'] = pd.to_datetime(df_veh['datetime'], format='ISO8601')
     
     if history_len == 0:
@@ -87,8 +91,8 @@ else:
     df_bik = df_bik.dropna()
     df_bik['x_act_ekf'] = df_bik['x_ekf'] + X_2056_offset
     df_bik['y_act_ekf'] = df_bik['y_ekf'] + Y_2056_offset
-    transformer = Transformer.from_crs("EPSG:2056", "EPSG:4326", always_xy=True)
-    df_bik["lon_ekf"], df_bik["lat_ekf"] = transformer.transform(df_bik["x_act_ekf"].values, df_bik["y_act_ekf"].values)
+    df_bik["lon_ekf"], df_bik["lat_ekf"] = _PROJ_2056_TO_LONLAT.transform(
+        df_bik["x_act_ekf"].values, df_bik["y_act_ekf"].values)
     center_lat, center_lon = df_bik["lat_ekf"].mean(), df_bik["lon_ekf"].mean()
     
     mode = BikeZ_Config.avail_modes[1] # Vehicle
@@ -100,7 +104,8 @@ else:
     df_veh = df_veh.dropna()
     df_veh['x_act_ekf'] = df_veh['x_ekf'] + X_2056_offset
     df_veh['y_act_ekf'] = df_veh['y_ekf'] + Y_2056_offset
-    df_veh["lon_ekf"], df_veh["lat_ekf"] = transformer.transform(df_veh["x_act_ekf"].values, df_veh["y_act_ekf"].values)
+    df_veh["lon_ekf"], df_veh["lat_ekf"] = _PROJ_2056_TO_LONLAT.transform(
+        df_veh["x_act_ekf"].values, df_veh["y_act_ekf"].values)
 
 
 # start_time = df_bik['datetime'].min()

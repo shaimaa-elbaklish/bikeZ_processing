@@ -30,34 +30,27 @@ Authors : ETH Zürich IVT
 # =============================================================================
 # IMPORTS
 # =============================================================================
+import folium
+
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
-import matplotlib.cm as cm
-from matplotlib.lines import Line2D
-from collections import defaultdict
 
-import folium
-from pyproj import Transformer
 from scipy.interpolate import splev
+from matplotlib.lines import Line2D
 
+from tools_utils import _PROJ_2056_TO_LONLAT
+from tools_utils import _is_axis_entry, _local_to_latlon
+from tools_utils import _spline_xy, _spline_xy_to_latlon
+from tools_utils import w_bike_at, _is_ring_entry, _ring_gates
+from tools_utils import _polygon_rings_latlon
+
+from tools_lane_coords_V5 import _unwrap_ring_s, _stitch_continuous_s
 
 # =============================================================================
 # SHARED HELPERS
 # =============================================================================
-
-def _is_axis_entry(key, val):
-    """True if geometry_store entry is a spline-based axis dict."""
-    if key in ('x_offset', 'y_offset'):
-        return False
-    if key.startswith('intersection_area') or key.startswith('__'):
-        return False
-    return isinstance(val, dict)
-_PALETTE = [
-    '#4878d0', '#ee854a', '#6acc65', '#d65f5f',
-    '#956cb4', '#8c613c', '#dc7ec0', '#797979',
-    '#d5bb67', '#82c6e2', '#e45858', '#56b4e9',
-]
 _ROLE_COLORS = {
     'approach':   '#2196F3',   # blue
     'turn':       '#FF9800',   # orange
@@ -70,33 +63,19 @@ _QUALITY_ALPHA = {
     'fallback':  0.35,
     'unmatched': 0.20,
 }
-_proj_fwd = Transformer.from_crs("EPSG:2056", "EPSG:4326", always_xy=True)
-
-
-def _local_to_latlon(x_arr, y_arr, x_offset, y_offset):
-    lon, lat = _proj_fwd.transform(
-        np.asarray(x_arr) + x_offset,
-        np.asarray(y_arr) + y_offset,
-    )
-    return list(zip(lat, lon))
 
 
 def _seg_color_map(segment_registry):
     """Assign a hex color to each seg_key from _PALETTE."""
+    from _constants import _SEG_PALETTE, _SEG_PALETTE_FALLBACK
+    
     keys = [k for k, v in segment_registry.items()
-            if v['type'] == 'lane']
-    cmap = {k: _PALETTE[i % len(_PALETTE)] for i, k in enumerate(keys)}
+            if v['type'] in ('lane', 'ring')]
+    cmap = {k: _SEG_PALETTE[i % len(_SEG_PALETTE)] for i, k in enumerate(keys)}
     for k, v in segment_registry.items():
         if k not in cmap:
-            cmap[k] = '#888888'
+            cmap[k] = _SEG_PALETTE_FALLBACK
     return cmap
-
-
-def _spline_latlon(tck, unew, cum_dist, s0, s1, x_offset, y_offset, n=100):
-    s_vals = np.linspace(s0, s1, n)
-    t_vals = np.interp(s_vals, cum_dist, unew)
-    x, y   = splev(t_vals, tck)
-    return _local_to_latlon(x, y, x_offset, y_offset)
 
 
 # =============================================================================
@@ -144,11 +123,8 @@ def plot_trajectory_map(bike_df,
 
     # ── Per-trajectory colour map keyed by seg_key (not geom_key) ────────────
     # Segments in chain order so colours are consistent across panels.
-    _SEG_PALETTE = [
-        '#4878d0', '#ee854a', '#6acc65', '#d65f5f',
-        '#956cb4', '#8c613c', '#dc7ec0', '#2ec4b6',
-        '#d5bb67', '#82c6e2', '#e45858', '#56b4e9',
-    ]
+    from _constants import _SEG_PALETTE, _SEG_PALETTE_FALLBACK
+    
     matched_segs_ordered = list(dict.fromkeys(
         s for s in bike_df['segment_id']
         if s is not None and s == s and s in segment_registry
@@ -167,18 +143,18 @@ def plot_trajectory_map(bike_df,
     def _row_color(row):
         if color_by == 'segment_id':
             seg = row['segment_id'] if 'segment_id' in row.index else None
-            return seg_col.get(seg, '#BBBBBB') if seg and seg == seg else '#BBBBBB'
+            return seg_col.get(seg, _SEG_PALETTE_FALLBACK) if seg and seg == seg else _SEG_PALETTE_FALLBACK
         elif color_by == 'role':
             role = row['segment_role'] if 'segment_role' in row.index else None
-            return _ROLE_COLORS.get(role, '#BBBBBB')
+            return _ROLE_COLORS.get(role, _SEG_PALETTE_FALLBACK)
         elif color_by == 'match_quality':
             q = row['match_quality'] if 'match_quality' in row.index else None
-            return QUALITY_COL.get(q, '#BBBBBB')
-        return '#888888'
+            return QUALITY_COL.get(q, _SEG_PALETTE_FALLBACK)
+        return _SEG_PALETTE_FALLBACK
 
-    # ── Centre map ────────────────────────────────────────────────────────────
+    # ── Center map ────────────────────────────────────────────────────────────
     xy     = bike_df[['x_ekf', 'y_ekf']].dropna().to_numpy()
-    lon_c, lat_c = _proj_fwd.transform(
+    lon_c, lat_c = _PROJ_2056_TO_LONLAT.transform(
         float(np.median(xy[:, 0])) + x_offset,
         float(np.median(xy[:, 1])) + y_offset,
     )
@@ -206,17 +182,10 @@ def plot_trajectory_map(bike_df,
             if poly is None or poly.is_empty:
                 continue
             col = seg_col.get(seg_key, '#888888')
-            try:
-                px, py      = poly.exterior.xy
-                coords_poly = _local_to_latlon(px, py, x_offset, y_offset)
-                folium.Polygon(
-                    locations=coords_poly,
-                    color=col, weight=1.5, opacity=0.6,
-                    fill=True, fill_color=col, fill_opacity=0.12,
-                    tooltip=seg_key,
-                ).add_to(fg_poly)
-            except Exception:
-                pass
+            for rings in _polygon_rings_latlon(poly, x_offset, y_offset):
+                folium.Polygon(locations=rings, color=col, weight=1.5,
+                               opacity=0.6, fill=True, fill_color=col,
+                               fill_opacity=0.12, tooltip=seg_key).add_to(fg_poly)
         fg_poly.add_to(m)
 
     # ── s_change markers ──────────────────────────────────────────────────────
@@ -228,13 +197,25 @@ def plot_trajectory_map(bike_df,
                 continue
             geom_key = entry['geometry_key']
             geo      = geometry_store.get(geom_key, {})
+            if _is_ring_entry(geo):
+                cx, cy = geo['center']
+                for k, s, is_entry, th in _ring_gates(geo):
+                    lon_g, lat_g = _PROJ_2056_TO_LONLAT.transform(
+                        cx + geo['radius'] * np.cos(th) + x_offset,
+                        cy + geo['radius'] * np.sin(th) + y_offset)
+                    folium.CircleMarker(
+                        location=(lat_g, lon_g), radius=4,
+                        color='seagreen' if is_entry else 'crimson',
+                        fill=True, fill_opacity=0.9,
+                        tooltip=f'{k} = {s:.2f} m').add_to(fg_sc)
+                continue
             s_change = geo.get('s_change')
             if s_change is None:
                 continue
             tck, unew, cum_dist = geo['spline']
             t_sc     = float(np.interp(s_change, cum_dist, unew))
             x_sc, y_sc = splev(t_sc, tck)
-            lon_sc, lat_sc = _proj_fwd.transform(
+            lon_sc, lat_sc = _PROJ_2056_TO_LONLAT.transform(
                 float(x_sc) + x_offset, float(y_sc) + y_offset
             )
             col = seg_col.get(seg_key, '#888888')
@@ -252,7 +233,7 @@ def plot_trajectory_map(bike_df,
                 sc_val = geo[key]
                 t_ec   = float(np.interp(sc_val, cum_dist, unew))
                 x_ec, y_ec = splev(t_ec, tck)
-                lon_ec, lat_ec = _proj_fwd.transform(
+                lon_ec, lat_ec = _PROJ_2056_TO_LONLAT.transform(
                     float(x_ec) + x_offset, float(y_ec) + y_offset
                 )
                 folium.CircleMarker(
@@ -273,22 +254,16 @@ def plot_trajectory_map(bike_df,
         geo      = geometry_store.get(geom_key)
         if geo is None or not isinstance(geo, dict) or 'spline' not in geo:
             continue
-        col              = seg_col.get(seg_key, '#888888')
+        col              = seg_col.get(seg_key, _SEG_PALETTE_FALLBACK)
         tck, unew, cum_dist = geo['spline']
         L                = geo['total_length']
         is_forward       = entry['is_forward']
         # Offset slightly so opposing directions are visually separated
         d_off = 1.5 if is_forward else -1.5
-        s_v   = np.linspace(0, L, 200)
-        t_v   = np.interp(s_v, cum_dist, unew)
-        from scipy.interpolate import splev as _splev_cl
-        xc, yc   = _splev_cl(t_v, tck, der=0)
-        dxc, dyc = _splev_cl(t_v, tck, der=1)
-        tang = np.sqrt(dxc**2 + dyc**2)
-        tang = np.where(tang > 1e-12, tang, 1.0)
-        nx = -dyc / tang;  ny = dxc / tang
-        xp = xc + d_off * nx;  yp = yc + d_off * ny
-        latlon_cl = _local_to_latlon(xp, yp, x_offset, y_offset)
+        latlon_cl = _spline_xy_to_latlon(
+            tck, unew, cum_dist, 0, L, x_offset, y_offset, 
+            d_offset=d_off, n=200
+        )
         dash = None if is_forward else '6 4'
         folium.PolyLine(
             locations=latlon_cl,
@@ -306,7 +281,7 @@ def plot_trajectory_map(bike_df,
     for _, row in bike_df.iterrows():
         if np.isnan(row['x_ekf']) or np.isnan(row['y_ekf']):
             continue
-        lon_p, lat_p = _proj_fwd.transform(
+        lon_p, lat_p = _PROJ_2056_TO_LONLAT.transform(
             row['x_ekf'] + x_offset,
             row['y_ekf'] + y_offset,
         )
@@ -342,7 +317,7 @@ def plot_trajectory_map(bike_df,
         (first_valid, 'green', 'play'),
         (last_valid,  'red',   'stop'),
     ]:
-        lon_e, lat_e = _proj_fwd.transform(
+        lon_e, lat_e = _PROJ_2056_TO_LONLAT.transform(
             row_end['x_ekf'] + x_offset,
             row_end['y_ekf'] + y_offset,
         )
@@ -446,7 +421,7 @@ def plot_lane_coords(bike_df,
         's':     's [m]',
         'd':     'd [m]',
         's_dot': 'ṡ [m/s]',
-        'd_dot': 'd̈ [m/s]',
+        'd_dot': 'ḋ[m/s]',
         's_ddot':'s̈ [m/s²]',
         'd_ddot':'d̈ [m/s²]',
     }
@@ -767,17 +742,14 @@ def plot_debug_panel(bike_df,
     ))
 
     # ── Per-segment colour palette (distinct per seg_key, not geom_key) ───────
-    _SEG_PALETTE = [
-        '#4878d0', '#ee854a', '#6acc65', '#d65f5f',
-        '#956cb4', '#8c613c', '#dc7ec0', '#2ec4b6',
-        '#d5bb67', '#82c6e2', '#e45858', '#56b4e9',
-    ]
+    from _constants import _SEG_PALETTE, _SEG_PALETTE_FALLBACK
+    
     seg_col = {sk: _SEG_PALETTE[i % len(_SEG_PALETTE)]
                for i, sk in enumerate(matched_segs)}
-    seg_col[None] = '#BBBBBB'
+    seg_col[None] = _SEG_PALETTE_FALLBACK
 
     def _row_col(seg):
-        return seg_col.get(seg, '#BBBBBB')
+        return seg_col.get(seg, _SEG_PALETTE_FALLBACK)
 
     # ── Segment time regions (for background shading in time panels) ──────────
     regions = []
@@ -838,22 +810,31 @@ def plot_debug_panel(bike_df,
     # ── Lane centerlines as background ────────────────────────────────────────
     LANE_OFFSET_M = 2.5
     for geom_key, geo in geometry_store.items():
-        if not _is_axis_entry(geom_key, geo) or geo.get('s_stop') is None:
+        if not _is_axis_entry(geom_key, geo):
+            continue
+        if geo.get('s_stop') is None and not _is_ring_entry(geo):
             continue
         tck, unew, cum_dist = geo['spline']
         L     = geo['total_length']
         col   = '#BBBBBB'  # background axes always gray
+        
+        if _is_ring_entry(geo):
+            xc, yc = _spline_xy(tck, unew, cum_dist, 0, L, d_offset=0.0, n=300)
+            ax.plot(xc - x0, yc - y0, color=col, linewidth=1.8,
+                    alpha=0.4, zorder=2)
+            for k, s, is_entry, th in _ring_gates(geo):
+                cx, cy = geo['center']
+                ax.plot([cx + geo['r_inner'] * np.cos(th) - x0,
+                         cx + geo['r_outer'] * np.cos(th) - x0],
+                        [cy + geo['r_inner'] * np.sin(th) - y0,
+                         cy + geo['r_outer'] * np.sin(th) - y0],
+                        color=col, linewidth=1.0, alpha=0.5, zorder=4)
+            continue
 
         for is_fwd, d_off in [(True, +LANE_OFFSET_M), (False, -LANE_OFFSET_M)]:
-            s_v  = np.linspace(0, L, 200)
-            t_v  = np.interp(s_v, cum_dist, unew)
-            xc, yc   = _splev(t_v, tck, der=0)
-            dxc, dyc = _splev(t_v, tck, der=1)
-            tang = np.sqrt(dxc**2 + dyc**2)
-            tang = np.where(tang > 1e-12, tang, 1.0)
-            nx = -dyc / tang;  ny = dxc / tang
-            xp = (xc + d_off * nx) - x0
-            yp = (yc + d_off * ny) - y0
+            xc, yc = _spline_xy(tck, unew, cum_dist, 0, L, d_offset=d_off, n=200)
+            xp = xc - x0
+            yp = yc - y0
             ls = '-' if is_fwd else '--'
             ax.plot(xp, yp, color=col, linewidth=1.8, linestyle=ls,
                     alpha=0.4, zorder=2, solid_capstyle='round')
@@ -956,56 +937,38 @@ def plot_debug_panel(bike_df,
     ax = axes[0, 1]
 
     # ── Continuous s across segment boundaries ───────────────────────────────
-    # Raw s resets at each segment boundary (each segment has its own spline).
-    # Stitch segments together by offsetting each so it starts where the
-    # previous one ended — giving a continuous s axis across the full chain.
-    s_raw  = bike_df['s'].to_numpy(dtype=float)
-    segs   = bike_df['segment_id'].to_numpy()
-    s_plot = np.full_like(s_raw, np.nan)
+    segs = bike_df['segment_id'].to_numpy()
+    if 'cumulative_s' in bike_df.columns:
+        s_plot = bike_df['cumulative_s'].to_numpy(dtype=float)
+    else:
+        s_raw = bike_df['s'].to_numpy(dtype=float)
+        s_uw  = s_raw.copy()
 
-    offset      = 0.0
-    prev_s_last = np.nan
-    i = 0
-    while i < len(s_raw):
-        seg_i = segs[i]
-        j = i
-        while j < len(s_raw) and segs[j] == seg_i:
-            j += 1
-        if seg_i is not None:
-            s_win = s_raw[i:j]
-            valid = np.isfinite(s_win)
-            if valid.any():
-                if np.isfinite(prev_s_last):
-                    # Shift so this segment continues from last valid s
-                    offset = prev_s_last - s_win[np.argmax(valid)]
-                s_plot[i:j] = np.where(valid, s_win + offset, np.nan)
-                prev_s_last = s_plot[i:j][valid][-1]
-        i = j
+        # Unwrap ring runs first. A DP run is (segment, direction).
+        seg = bike_df['segment_id'].to_numpy(dtype=object)
+        rev = bike_df['is_reverse'].to_numpy()
+        run_lbl = np.array(
+            [None if (s is None or s != s) else f'{s}|{int(bool(r))}'
+             for s, r in zip(seg, rev)], dtype=object)
+        
+        lbl_filled = pd.Series(run_lbl).fillna('__UNMATCHED__')
+        run_id = (lbl_filled != lbl_filled.shift()).cumsum().to_numpy()
+        for r in np.unique(run_id):
+            idx = np.where(run_id == r)[0]
+            sk  = segs[idx[0]]
+            if sk is None or sk != sk or sk not in segment_registry:
+                continue
+            geo = geometry_store[segment_registry[sk]['geometry_key']]
+            if geo.get('periodic'):
+                s_run = _unwrap_ring_s(s_raw[idx], geo['total_length'])
+                if bool(bike_df['is_reverse'].iloc[idx[0]]):
+                    s_run = -s_run
+                s_uw[idx] = s_run
+
+        xy = bike_df[['x_ekf', 'y_ekf']].to_numpy(dtype=float)
+        s_plot = _stitch_continuous_s(s_uw, run_lbl, xy)
 
     d_plot = bike_df['d'].to_numpy(dtype=float)
-
-    # ── Build per-segment s offset map for bike boundary alignment ────────────
-    # Recompute the offset applied to each segment's s so the bike lane
-    # boundary can be shifted by the same amount onto the continuous s axis.
-    seg_s_offset = {}   # {seg_key: offset applied during stitching}
-    _offset      = 0.0
-    _prev_last   = np.nan
-    _i = 0
-    while _i < len(s_raw):
-        _seg_i = segs[_i]
-        _j = _i
-        while _j < len(s_raw) and segs[_j] == _seg_i:
-            _j += 1
-        if _seg_i is not None:
-            _win   = s_raw[_i:_j]
-            _valid = np.isfinite(_win)
-            if _valid.any():
-                if np.isfinite(_prev_last):
-                    _offset = _prev_last - _win[np.argmax(_valid)]
-                seg_s_offset[_seg_i] = _offset
-                _prev_s_cont = np.where(_valid, _win + _offset, np.nan)
-                _prev_last   = _prev_s_cont[_valid][-1]
-        _i = _j
 
     # ── Lines coloured by segment_id ─────────────────────────────────────────
     unm = np.array([s is None or s != s for s in segs])
@@ -1038,7 +1001,7 @@ def plot_debug_panel(bike_df,
                 continue
             d_bnd_spl = bike_lane['d_boundary_spline']
             s_domain  = bike_lane.get('s_domain', (0, 1))
-            w_bike    = bike_lane.get('w_bike', 0)
+            # w_bike    = bike_lane.get('w_bike', 0)
             side      = bike_lane.get('side', -1)
 
             # Rows for this segment with valid s_native and continuous s
@@ -1057,7 +1020,7 @@ def plot_debug_panel(bike_df,
             # Uniform native s grid → smooth boundary
             s_nat_grid = np.linspace(s_domain[0], s_domain[1], 120)
             d_bnd      = np.array([float(d_bnd_spl(si)) for si in s_nat_grid])
-            d_far      = d_bnd + side * w_bike
+            d_far      = d_bnd + side * w_bike_at(bike_lane, s_nat_grid)
             s_cont_grid = s_nat_grid + nat2cont_offset
 
             ax.plot(s_cont_grid, d_bnd, color='cyan', linewidth=1.8,
@@ -1092,7 +1055,7 @@ def plot_debug_panel(bike_df,
     unm       = np.array([s is None or s != s for s in seg_ids])
 
     ax.plot(t, speed_raw, color='black', linewidth=1.6,
-            zorder=4, label='speed_ekf [km/h]')
+            zorder=4, label='speed_ekf [m/s]')
 
     for sk in matched_segs:
         mask = np.array([s == sk for s in seg_ids])
@@ -1121,8 +1084,8 @@ def plot_debug_panel(bike_df,
     ax.axhline(0, color='#999999', linewidth=0.8, linestyle='--', zorder=1)
     ax.set_xlabel(time_col if time_col in bike_df.columns
                   else 'frame index', fontsize=9)
-    ax.set_ylabel('[km/h]', fontsize=9)
-    ax.set_ylim([-25, 35])
+    ax.set_ylabel('[m/s]', fontsize=9)
+    ax.set_ylim([-9, 14])
     ax.set_title('Speed decomposition vs time', fontsize=10)
     ax.legend(fontsize=7, loc='upper right', framealpha=0.85, ncol=2)
     ax.grid(True, alpha=0.25)

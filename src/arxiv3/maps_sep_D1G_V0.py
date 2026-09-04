@@ -34,13 +34,13 @@ import osmnx as ox
 import geopandas as gpd
 import matplotlib.pyplot as plt
 
-from pyproj import Transformer
 from shapely.geometry import box
 from shapely.geometry import Point
 from shapely.plotting import plot_points
 from shapely.plotting import plot_line
 
 from _constants import BikeZ_Config
+from tools_utils import _PROJ_2056_TO_LONLAT
 from tools_coordinate_transform import cut_line_at_stop
 from tools_coordinate_transform import densify_linestring
 from tools_site_builder import (
@@ -76,38 +76,13 @@ X_2056_offset = XY_2056_Bounds[0][0]
 Y_2056_offset = XY_2056_Bounds[1][0]
 
 # Site constants
-kml_path       = '../maps/from_swisstopo/September_D1G.kml'
-kml_path_gis   = '../maps/from_swisstopo/September_D1G_GIS.kml'
-save_path      = f'../data/registry_{date}_{intersection}_{code}.pkl'
-max_chain_len  = 3
+kml_path      = '../maps/from_swisstopo/September_D1G.kml'
+save_path     = f'../data/registry_{date}_{intersection}_{code}.pkl'
+max_chain_len = 3
 
 
 # Share Link: https://s.geo.admin.ch/1ssj1wf1tkvy
 # Edit Link: https://s.geo.admin.ch/zf0fmp83szbr
-
-# GIS-ZH 
-# Share Link: https://geo.zh.ch/s/7f08db85-491d-4a44-b606-7ce0b074c20b
-
-# #############################################################################
-# HELPER FUNCTIONS
-# #############################################################################
-def merge_replace(gdf_base, gdf_override, key='description'):
-    """
-    Replace rows in gdf_base whose `key` value also appears in gdf_override
-    with the gdf_override version. Anything in gdf_override not present in
-    gdf_base gets appended as new.
-    """
-    override_names = set(gdf_override[key].dropna())
-
-    # Keep only base rows NOT being replaced
-    gdf_base_filtered = gdf_base[~gdf_base[key].isin(override_names)]
-
-    # Combine: kept base rows + all override rows
-    merged = gpd.GeoDataFrame(
-        pd.concat([gdf_base_filtered, gdf_override], ignore_index=True),
-        crs=gdf_base.crs
-    )
-    return merged
 
 
 # #############################################################################
@@ -117,8 +92,7 @@ def merge_replace(gdf_base, gdf_override, key='description'):
 # =============================================================================
 # STEP 0: load external data sources
 print("Loading OSMnx features...")
-transformer = Transformer.from_crs('EPSG:2056', 'EPSG:4326', always_xy=True)
-lonlat      = transformer.transform(
+lonlat = _PROJ_2056_TO_LONLAT.transform(
     np.asarray(XY_2056_Bounds[0]) + np.asarray([-15, 15]),
     np.asarray(XY_2056_Bounds[1]) + np.asarray([-15, 15]),
 )
@@ -147,17 +121,6 @@ gdf = gdf[~gdf.is_empty]
 print("Loading SwissTopo KML...")
 gdf_swisstopo = gpd.read_file(kml_path, driver='KML')
 
-print("Loading GIS ZH KML...")
-from tools_site_builder import read_gis_kml
-
-color_to_name = {
-    '#ff0000': 'Birmensdorferstr_CL',                         # red
-    '#0000ff': 'Schweighofstr_Schaufelbergerstr_CutLine',     # blue
-}
-gdf_gis = read_gis_kml(kml_path_gis, color_to_name)
-# merge them
-gdf_swisstopo = merge_replace(gdf_swisstopo, gdf_gis, key='Description')
-
 
 # STEP 1: fit splines  (geometry sourcing, customise per road as needed)
 print("\nFitting splines...")
@@ -176,40 +139,104 @@ tck_SchaufB, unew_SchaufB, cum_SchaufB, len_SchaufB = fit_spline_from_shapely(
     line_SchaufB, x_offset=X_2056_offset, y_offset=Y_2056_offset,
 )
 
-# Birmensdorferstr: Split into west and east sides
-birm_line = gdf_swisstopo[gdf_swisstopo['Description'] == 'Birmensdorferstr_CL'].geometry.item()
-cut_line = gdf_swisstopo[gdf_swisstopo['Description'] == 'Schweighofstr_Schaufelbergerstr_CutLine'].geometry.item()
-birm_west_line = cut_line_at_stop(birm_line, cut_line, choose='first', plotting=False)
-tck_BW, unew_BW, cum_BW, len_BW = fit_spline_from_shapely(
-    birm_west_line, x_offset=X_2056_offset, y_offset=Y_2056_offset,
+# Birmensdorferstr: Split by IDs into the forked branches
+gdf_birm = gdf[gdf['name'] == 'Birmensdorferstrasse']
+gdf_birm = gdf_birm[gdf_birm.geometry.type == "LineString"]
+# for idx, row in gdf_birm.iterrows():
+#     osmid = idx[1] if isinstance(idx, tuple) else idx  # ('way', id) MultiIndex
+#     c = list(row.geometry.coords)
+#     print(f"osmid={osmid:>12}  n_pts={len(c):3d}  "
+#           f"start=({c[0][0]:.6f},{c[0][1]:.6f})  "
+#           f"end=({c[-1][0]:.6f},{c[-1][1]:.6f})  "
+#           f"oneway={row.get('oneway')}  len={row.geometry.length:.6f}")
+
+# # Plot each fragment separately, colored + labeled by osmid
+# import matplotlib.pyplot as plt
+# import matplotlib.cm as cm
+# fig, ax = plt.subplots(1, 1, figsize=(10, 8))
+# colors = cm.tab20(np.linspace(0, 1, len(gdf_birm)))
+# for (idx, row), c in zip(gdf_birm.iterrows(), colors):
+#     osmid = idx[1] if isinstance(idx, tuple) else idx
+#     xs, ys = row.geometry.xy
+#     ax.plot(xs, ys, color=c, linewidth=2, label=f"{osmid}")
+#     mx, my = row.geometry.interpolate(0.5, normalized=True).coords[0]
+#     ax.annotate(str(osmid), (mx, my), fontsize=7)
+# ax.legend(fontsize=6, ncol=2, loc='best')
+# ax.set_title("Birmensdorferstrasse — edges by osmid")
+# plt.show()
+from shapely.geometry import LineString, MultiLineString
+from shapely.ops import linemerge
+def merge_edges_by_ids(gdf, osmids):
+    """Merge specific OSMnx edges by osmid into a single ordered LineString."""
+    rows = gdf[gdf.index.get_level_values('id').isin(osmids)]
+    merged = linemerge(MultiLineString(list(rows.geometry)))
+    if isinstance(merged, MultiLineString):
+        raise ValueError(f"Edges did not merge into a single LineString — "
+                         f"check connectivity of osmids: {osmids}")
+    return merged
+
+
+BIRMENSDORFER_WB_IDS = [546118531, 546118521, 546118524, 422926694]
+BIRMENSDORFER_EB_IDS = [546118531, 546118517, 14943840]
+
+line_Birm_WB = merge_edges_by_ids(gdf_birm, BIRMENSDORFER_WB_IDS)
+line_Birm_EB = merge_edges_by_ids(gdf_birm, BIRMENSDORFER_EB_IDS)
+
+# Birmensdorferstr_WB: Split into west and east sides
+line_BirmE_WB = cut_line_at_stop(line_Birm_WB, line_SchaufB, choose='first', plotting=False)
+line_BirmE_WB = densify_linestring(line_BirmE_WB, num_segments=20)
+tck_BE_WB, unew_BE_WB, cum_BE_WB, len_BE_WB = fit_spline_from_shapely(
+    line_BirmE_WB, x_offset=X_2056_offset, y_offset=Y_2056_offset
 )
 
-birm_east_line = cut_line_at_stop(birm_line, cut_line, choose='last', plotting=False)
-tck_BE, unew_BE, cum_BE, len_BE = fit_spline_from_shapely(
-    birm_east_line, x_offset=X_2056_offset, y_offset=Y_2056_offset,
+line_BirmW_WB = cut_line_at_stop(line_Birm_WB, line_SchaufB, choose='last', plotting=False)
+line_BirmW_WB = densify_linestring(line_BirmW_WB, num_segments=20)
+tck_BW_WB, unew_BW_WB, cum_BW_WB, len_BW_WB = fit_spline_from_shapely(
+    line_BirmW_WB, x_offset=X_2056_offset, y_offset=Y_2056_offset
+)
+
+# Birmensdorferstr_EB: Split into west and east sides
+line_BirmE_EB = cut_line_at_stop(line_Birm_EB, line_SchwH, choose='last', plotting=False)
+line_BirmE_EB = densify_linestring(line_BirmE_EB, num_segments=20)
+tck_BE_EB, unew_BE_EB, cum_BE_EB, len_BE_EB = fit_spline_from_shapely(
+    line_BirmE_EB, x_offset=X_2056_offset, y_offset=Y_2056_offset
+)
+
+line_BirmW_EB = cut_line_at_stop(line_Birm_EB, line_SchwH, choose='first', plotting=False)
+line_BirmW_EB = densify_linestring(line_BirmW_EB, num_segments=20)
+tck_BW_EB, unew_BW_EB, cum_BW_EB, len_BW_EB = fit_spline_from_shapely(
+    line_BirmW_EB, x_offset=X_2056_offset, y_offset=Y_2056_offset
 )
 
 
-print(f"  Schweighofstr     : {len_SchwH:.1f} m")
-print(f"  Schaufelbergerstr : {len_SchaufB:.1f} m")
-print(f"  BirmensdorferstrE : {len_BE:.1f} m")
-print(f"  BirmensdorferstrW : {len_BW:.1f} m")
+print(f"  Schweighofstr        : {len_SchwH:.1f} m")
+print(f"  Schaufelbergerstr    : {len_SchaufB:.1f} m")
+print(f"  BirmensdorferstrE_WB : {len_BE_WB:.1f} m")
+print(f"  BirmensdorferstrW_WB : {len_BW_WB:.1f} m")
+print(f"  BirmensdorferstrE_EB : {len_BE_EB:.1f} m")
+print(f"  BirmensdorferstrW_EB : {len_BW_EB:.1f} m")
 
 
 fig, ax = plt.subplots(1, 1)
 # gdf.plot(ax=ax, column='name', legend=True)
 plot_line(line_SchwH, ax=ax, add_points=False, color='tab:blue', label='Schweighofstr')
 plot_line(line_SchaufB, ax=ax, add_points=False, color='tab:orange', label='Schaufelbergerstr')
-plot_line(birm_east_line, ax=ax, add_points=False, color='tab:green', label='BirmensdorferstrE')
-plot_line(birm_west_line, ax=ax, add_points=False, color='tab:purple', label='BirmensdorferstrW')
+plot_line(line_BirmE_WB, ax=ax, add_points=False, color='tab:green', label='BirmensdorferstrE_WB')
+plot_line(line_BirmW_WB, ax=ax, add_points=False, color='tab:purple', label='BirmensdorferstrW_WB')
+plot_line(line_BirmE_EB, ax=ax, add_points=False, color='tab:brown', label='BirmensdorferstrE_EB')
+plot_line(line_BirmW_EB, ax=ax, add_points=False, color='tab:pink', label='BirmensdorferstrW_EB')
 plot_points(Point(line_SchwH.coords[0]), color='red', marker='o',)
-plot_points(Point(line_SchwH.coords[-1]), color='black', marker='x',)
-plot_points(Point(line_SchaufB.coords[0]), color='red', marker='o',)
+plot_points(Point(line_SchwH.coords[-2]), color='black', marker='x',)
+plot_points(Point(line_SchaufB.coords[1]), color='red', marker='o',)
 plot_points(Point(line_SchaufB.coords[-1]), color='black', marker='x',)
-plot_points(Point(birm_east_line.coords[1]), color='red', marker='o',)
-plot_points(Point(birm_east_line.coords[-1]), color='black', marker='x',)
-plot_points(Point(birm_west_line.coords[0]), color='red', marker='o',)
-plot_points(Point(birm_west_line.coords[-2]), color='black', marker='x',)
+plot_points(Point(line_BirmE_WB.coords[0]), color='red', marker='o',)
+plot_points(Point(line_BirmE_WB.coords[-2]), color='black', marker='x',)
+plot_points(Point(line_BirmW_WB.coords[1]), color='red', marker='o',)
+plot_points(Point(line_BirmW_WB.coords[-1]), color='black', marker='x',)
+plot_points(Point(line_BirmE_EB.coords[1]), color='red', marker='o',)
+plot_points(Point(line_BirmE_EB.coords[-1]), color='black', marker='x',)
+plot_points(Point(line_BirmW_EB.coords[1]), color='red', marker='o',)
+plot_points(Point(line_BirmW_EB.coords[-2]), color='black', marker='x',)
 handles, labels = ax.get_legend_handles_labels()
 fig.legend(handles, labels, loc="lower center", ncols=3)
 fig.suptitle(
@@ -248,20 +275,39 @@ RAW_AXES = [
         'yield_line_id': 'Schaufelbergerstr_Yield',
     },
     {
-        'name':          'BirmensdorferstrE',
-        'positive_dir':  'EB',
-        'spline':        (tck_BE, unew_BE, cum_BE),
-        'total_length':  len_BE,
-        'line_wgs84':    birm_east_line,
+        'name':          'BirmensdorferstrE_WB',
+        'positive_dir':  'WB',
+        'spline':        (tck_BE_WB, unew_BE_WB, cum_BE_WB),
+        'total_length':  len_BE_WB,
+        'line_wgs84':    line_BirmE_WB,
         'stop_line_id':  'BirmensdorferstrE_Stop',   
         'yield_line_id': 'BirmensdorferstrE_Yield',
     },
     {
-        'name':          'BirmensdorferstrW',
+        'name':          'BirmensdorferstrE_EB',
         'positive_dir':  'EB',
-        'spline':        (tck_BW, unew_BW, cum_BW),
-        'total_length':  len_BW,
-        'line_wgs84':    birm_west_line,
+        'spline':        (tck_BE_EB, unew_BE_EB, cum_BE_EB),
+        'total_length':  len_BE_EB,
+        'line_wgs84':    line_BirmE_EB,
+        'stop_line_id':  'BirmensdorferstrE_Stop',
+        'yield_line_id': 'BirmensdorferstrE_Yield',
+    },
+    
+    {
+        'name':          'BirmensdorferstrW_WB',
+        'positive_dir':  'WB',
+        'spline':        (tck_BW_WB, unew_BW_WB, cum_BW_WB),
+        'total_length':  len_BW_WB,
+        'line_wgs84':    line_BirmW_WB,
+        'stop_line_id':  'BirmensdorferstrW_Stop',
+        'yield_line_id': 'BirmensdorferstrW_Yield',
+    },
+    {
+        'name':          'BirmensdorferstrW_EB',
+        'positive_dir':  'EB',
+        'spline':        (tck_BW_EB, unew_BW_EB, cum_BW_EB),
+        'total_length':  len_BW_EB,
+        'line_wgs84':    line_BirmW_EB,
         'stop_line_id':  'BirmensdorferstrW_Stop',
         'yield_line_id': 'BirmensdorferstrW_Yield',
     },
@@ -286,62 +332,40 @@ SEG_DEFS = [
     # ── Schweighofstrasse ────────────────────────────────────────────────────
     {'seg_key': 'Schweighofstr_NB', 'geometry_key': 'Schweighofstr',
      'direction': 'NB', 'mode': 'shared', 'bike_lane': {'w_bike': 1.5},
-     'd_left': 1.0, 'd_right': 13.0,
-     'car_lane_d_bnd': {
-         1: (-3.25, 0),
-     }},
+     'd_left': 1.0, 'd_right': 13.0,},
     {'seg_key': 'Schweighofstr_SB', 'geometry_key': 'Schweighofstr',
      'direction': 'SB', 'mode': 'shared', 'bike_lane': None,
-     'd_left': 1.0, 'd_right': 13.0,
-     'car_lane_d_bnd': {
-         1: (0, 3.25),
-     }},
+     'd_left': 1.0, 'd_right': 13.0,},
 
     # ── Schaufelbergerstrasse ────────────────────────────────────────────────
     {'seg_key': 'Schaufelbergerstr_NB', 'geometry_key': 'Schaufelbergerstr',
      'direction': 'NB', 'mode': 'shared', 'bike_lane': None,
-     'd_left': 1.5, 'd_right': 12.0,
-     'car_lane_d_bnd': {
-         1: (-4.25, 0.25),
-     }},
+     'd_left': 1.5, 'd_right': 12.0,},
     {'seg_key': 'Schaufelbergerstr_SB', 'geometry_key': 'Schaufelbergerstr',
      'direction': 'SB', 'mode': 'shared', 'bike_lane': None,
-     'd_left': 1.5, 'd_right': 12.0,
-     'car_lane_d_bnd': {
-         1: (0.25, 4.75),
-     }},
+     'd_left': 1.5, 'd_right': 12.0,},
 
-    # ── Birmensdorferstrasse East  ───────────────────────────────────────────
-    {'seg_key': 'BirmensdorferstrE_WB', 'geometry_key': 'BirmensdorferstrE',
+    # ── Birmensdorferstrasse East, WB carriageway ────────────────────────────
+    {'seg_key': 'BirmensdorferstrE_WB', 'geometry_key': 'BirmensdorferstrE_WB',
      'direction': 'WB', 'mode': 'shared', 'bike_lane': {'w_bike': 1.5},
-     'd_left': 2.0, 'd_right': 20.0,
-     'car_lane_d_bnd': {
-         2: (5.75, 9.0),
-         1: (9.0, 12.25),
-     }},
-    {'seg_key': 'BirmensdorferstrE_EB', 'geometry_key': 'BirmensdorferstrE',
-     'direction': 'EB', 'mode': 'shared', 'bike_lane': {'w_bike': 1.5},
-     'd_left': 2.0, 'd_right': 18.0,
-     'car_lane_d_bnd': {
-         1: (-9.0, -5.75),
-     }},
+     'd_left': 6.0, 'd_right': 10.0,},
 
-    # ── Birmensdorferstrasse West  ───────────────────────────────────────────
-    {'seg_key': 'BirmensdorferstrW_WB', 'geometry_key': 'BirmensdorferstrW',
-     'direction': 'WB', 'mode': 'shared', 'bike_lane': {'w_bike': 1.5},
-     'd_left': 2.0, 'd_right': 20.0,
-     'car_lane_d_bnd': {
-         2: (3.5, 8.25),
-         1: (8.25, 11.5),
-     }},
-    {'seg_key': 'BirmensdorferstrW_EB', 'geometry_key': 'BirmensdorferstrW',
+    # ── Birmensdorferstrasse East, EB carriageway ────────────────────────────
+    {'seg_key': 'BirmensdorferstrE_EB', 'geometry_key': 'BirmensdorferstrE_EB',
      'direction': 'EB', 'mode': 'shared', 'bike_lane': {'w_bike': 1.5},
-     'd_left': 2.0, 'd_right': 20.0,
-     'car_lane_d_bnd': {
-         2: (-8.0, -3.25),
-         1: (-12.5, -8.5),
-     }},
+     'd_left': 6.0, 'd_right': 10.0,},
+
+    # ── Birmensdorferstrasse West, WB carriageway ────────────────────────────
+    {'seg_key': 'BirmensdorferstrW_WB', 'geometry_key': 'BirmensdorferstrW_WB',
+     'direction': 'WB', 'mode': 'shared', 'bike_lane': {'w_bike': 1.5},
+     'd_left': 7.0, 'd_right': 13.0,},
+
+    # ── Birmensdorferstrasse West, EB carriageway ────────────────────────────
+    {'seg_key': 'BirmensdorferstrW_EB', 'geometry_key': 'BirmensdorferstrW_EB',
+     'direction': 'EB', 'mode': 'shared', 'bike_lane': {'w_bike': 1.5},
+     'd_left': 7.0, 'd_right': 13.0,},
 ]
+
 
 segment_registry = build_segment_registry(geometry_store, SEG_DEFS)
 
@@ -414,11 +438,19 @@ geometry_store['intersection_area_MainInt'] = build_intersection_polygon(
         {'geom_key': 'Schaufelbergerstr',    's_change_key': 's_change',
          'pos_seg_key': 'Schaufelbergerstr_NB',    'opp_seg_key': 'Schaufelbergerstr_SB',
          'approach_seg_key': 'Schaufelbergerstr_SB'},
-        {'geom_key': 'BirmensdorferstrW',     's_change_key': 's_change',
+        
+        {'geom_key': 'BirmensdorferstrW_EB',     's_change_key': 's_change',
          'pos_seg_key': 'BirmensdorferstrW_EB',     'opp_seg_key': 'BirmensdorferstrW_WB',
          'approach_seg_key': 'BirmensdorferstrW_EB'},
-        {'geom_key': 'BirmensdorferstrE',     's_change_key': 's_change',
+        {'geom_key': 'BirmensdorferstrW_WB',     's_change_key': 's_change',
+         'pos_seg_key': 'BirmensdorferstrW_WB',     'opp_seg_key': 'BirmensdorferstrW_EB',
+         'approach_seg_key': 'BirmensdorferstrW_EB'},
+        
+        {'geom_key': 'BirmensdorferstrE_EB',     's_change_key': 's_change',
          'pos_seg_key': 'BirmensdorferstrE_EB',     'opp_seg_key': 'BirmensdorferstrE_WB',
+         'approach_seg_key': 'BirmensdorferstrE_WB'},
+        {'geom_key': 'BirmensdorferstrE_WB',     's_change_key': 's_change',
+         'pos_seg_key': 'BirmensdorferstrE_WB',     'opp_seg_key': 'BirmensdorferstrE_EB',
          'approach_seg_key': 'BirmensdorferstrE_WB'},
     ],
     geometry_store   = geometry_store,
@@ -521,6 +553,5 @@ from tools_map_visualization import create_registry_map
 m = create_registry_map(
     geometry_store, segment_registry, movement_registry,
     gdf_swisstopo,
-    base_map_src="gis-zh",
-    save_path=f'../maps/registry_{date}_{intersection}_{code}_gis.html',
+    save_path=f'../maps/registry_{date}_{intersection}_{code}.html',
 )

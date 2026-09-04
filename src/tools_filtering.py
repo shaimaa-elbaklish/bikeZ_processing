@@ -3,9 +3,16 @@ TITLE OF PAPAER
 -------------------------------------------
 Authors:        Shaimaa El-Baklish
 Organization:   ETH Zürich, Switzerland, IVT - Institute for Transportation Planning and Systems
-Development:    2025
+Development:    2025-2026
 Submitted to:   JOURNAL
 -------------------------------------------
+
+Heading and angular-velocity estimation from raw (x, y) trajectories,
+gap-aware: computations are restricted to contiguous observed segments
+so smoothing and differencing never bleed across occlusion gaps, and
+gap frames are filled by propagation rather than interpolation.
+Used upstream of the Kalman filter (tools_kalman.py) to seed heading
+and turn-rate estimates from raw detections.
 """
 
 # #############################################################################
@@ -41,6 +48,10 @@ def estimate_heading(df, speed_threshold=0.5, window_s=0.5, min_periods=3,
         min_periods:       minimum valid samples in smoothing window
         fps:               frames per second
         smooth_method:    'rolling' for rolling MA, 'savgol' for Savitzky-Golay, None to skip
+    
+    Returns:
+        Copy of `df` with an added 'angle' column (radians), concatenated
+        across vehicles and re-sorted to the original index order.
     """
     window = int(window_s * fps)
     if window % 2 == 0:
@@ -104,7 +115,7 @@ def estimate_heading(df, speed_threshold=0.5, window_s=0.5, min_periods=3,
                     continue
 
             ds = np.hypot(dx, dy)
-            if ds < 1e-3 or speed[i] < speed_threshold:
+            if ds < 5e-02 or speed[i] < speed_threshold:
                 continue  # unreliable direction
 
             heading[i] = np.arctan2(dy, dx)   # radians
@@ -194,6 +205,10 @@ def estimate_angular_velocity(df, heading_col='angle', time_col='time',
                           Values beyond this are clipped and flagged.
                           Typical bicycle sharp turn: ~1-2 rad/s. Default 3.0 is conservative.
         smooth_method:    'rolling' for rolling MA, 'savgol' for Savitzky-Golay, None to skip
+
+    Returns:
+        Copy of `df` with added 'angular_vel' (rad/s) and 'angvel_clipped'
+        (bool, True where the cap was applied) columns.
     """
     results = []
 

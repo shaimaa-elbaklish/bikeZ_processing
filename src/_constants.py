@@ -3,9 +3,11 @@ TITLE OF PAPAER
 -------------------------------------------
 Authors:        Shaimaa El-Baklish
 Organization:   ETH Zürich, Switzerland, IVT - Institute for Transportation Planning and Systems
-Development:    2025
+Development:    2025-2026
 Submitted to:   JOURNAL
 -------------------------------------------
+
+Central configuration and constants for the BikeZ trajectory-processing pipeline.
 """
 
 # #############################################################################
@@ -25,6 +27,14 @@ from typing import Tuple, Dict, List
 
 @dataclass
 class BikeZ_Config:
+    """
+    Dataset paths, recording-session catalog, and spatial bounds for BikeZ.
+    Holds everything a script needs to locate raw/subsampled data on disk
+    and to validate a (date, intersection, code, timeslot) combination
+    against what was actually recorded. 
+    Provides functions `get_intersection_code(date, location, timeslot)` 
+    and `get_available_dates_and_timeslots(location)`.
+    """
     timezone = pytz.timezone('Europe/Berlin')
     fps: float = 25.0
     dir_root: str = "C:/Users/ShaimaaElBaklish/Documents/Datasets/BikeZ/"
@@ -32,12 +42,10 @@ class BikeZ_Config:
     data_root: Dict = field(default_factory=lambda: {
         "Zurich_202506": {
             "bike": "C:/Users/ShaimaaElBaklish/Documents/Datasets/BikeZ/Zurich_202506/bike_trajectories/v2/",
-            # "bike": "C:/Users/tramseier/Documents/SVT/Data/BikeZ/MobilLysis_bicycle_trajectory/",
             "vehicle": "C:/Users/ShaimaaElBaklish/Documents/Datasets/BikeZ/Zurich_202506/vehicle_trajectories/"
         },
         "Zurich_202509": {
             "bike": "C:/Users/ShaimaaElBaklish/Documents/Datasets/BikeZ/Zurich_202509/bike_trajectories/",
-            # "bike": "C:/Users/tramseier/Documents/SVT/Data/BikeZ/MobilLysis_bicycle_trajectory/",
             "vehicle": "C:/Users/ShaimaaElBaklish/Documents/Datasets/BikeZ/Zurich_202509/vehicle_trajectories/"
         }
     })
@@ -180,3 +188,26 @@ POST_FILTERING_KERNEL_B = 20
 
 PROCESSING_MAX_VELOCITY = 16
 PROCESSING_THR_VELOCITY = 0.5
+
+
+# #############################################################################
+# CONSTANTS: Visualization
+# #############################################################################
+_GEOM_PALETTE = [
+    'steelblue', 'tomato', 'mediumpurple', 'darkorange',
+    'seagreen',  'crimson', 'goldenrod',   'teal',
+    'slategray', 'orchid',  'sienna',      'cornflowerblue',
+    'deeppink',  'olive',   'peru',        'dodgerblue',
+]
+_GEOM_PALETTE_FALLBACK = 'dimgray'
+
+
+_SEG_PALETTE = [
+    '#4878d0', '#ee854a', '#6acc65',  # royalblue, coral, mediumseagreen
+    '#d65f5f', '#956cb4', '#8c613c',  # indianred, mediumpurple, sienna (brown)
+    '#dc7ec0', '#2ec4b6', '#d5bb67',  # orchid (pink), lightseagreen (teal),  darkkhaki (gold)
+    '#82c6e2', '#e45858', '#56b4e9',  # skyblue, indianred (brighter red), cornflowerblue (bright blue)
+    '#9bcb4d', '#5b4dcb', '#c14dcb',  # yellowgreen, slateblue (indigo), mediumorchid 
+    '#8a2834',  # brown (dark maroon)
+]
+_SEG_PALETTE_FALLBACK = '#888888'  # gray

@@ -72,7 +72,7 @@ import geopandas as gpd
 import xml.etree.ElementTree as ET
 
 from datetime import date as _date
-from scipy.interpolate import splev
+from scipy.interpolate import splev, splprep
 from scipy.interpolate import interp1d
 from shapely.ops import linemerge
 from shapely.ops import unary_union
@@ -245,7 +245,7 @@ def _turn_validity_polygon(tck, unew, cum_dist, s_start, s_end,
 
 
 def _sample_near_boundary(seg_key, role, segment_registry, geometry_store,
-                           s_change_key='s_change', n_pts=10):
+                           s_change_key='s_change', n_pts=10, window_m=20.0):
     """
     Sample n_pts points near a junction boundary in local EPSG:2056,
     ordered in the vehicle's travel direction.
@@ -264,6 +264,7 @@ def _sample_near_boundary(seg_key, role, segment_registry, geometry_store,
     segment_registry, geometry_store : dicts
     s_change_key  : str — key on the geometry entry for the boundary
     n_pts         : int
+    window_m      : float
  
     Returns
     -------
@@ -271,6 +272,7 @@ def _sample_near_boundary(seg_key, role, segment_registry, geometry_store,
     """
     entry               = segment_registry[seg_key]
     geom_key            = entry['geometry_key']
+    geo                 = geometry_store[geom_key]
     tck, unew, cum_dist = geometry_store[geom_key]['spline']
     is_forward          = entry['is_forward']
     L                   = geometry_store[geom_key]['total_length']
@@ -282,17 +284,27 @@ def _sample_near_boundary(seg_key, role, segment_registry, geometry_store,
             f"key '{s_change_key}'. Available keys: "
             f"{[k for k in geometry_store[geom_key] if k.startswith('s_')]}"
         )
- 
-    if role == 'approach':
-        if is_forward:
-            s_vals = np.linspace(max(0.0, s_bnd - 20.0), s_bnd, n_pts)
+    
+    if geo.get('periodic'):
+        # Closed curve: s wraps rather than clamping, and travel is always
+        # +s because a ring is registered with direction == positive_dir.
+        # Clamping here would silently shorten the window for any gate
+        # within window_m of the seam.
+        if role == 'approach':
+            s_vals = s_bnd - np.linspace(window_m, 0.0, n_pts)
         else:
-            s_vals = np.linspace(min(L, s_bnd + 20.0), s_bnd, n_pts)
+            s_vals = s_bnd + np.linspace(0.0, window_m, n_pts)
+        s_vals = np.mod(s_vals, L)
+    elif role == 'approach':
+        if is_forward:
+            s_vals = np.linspace(max(0.0, s_bnd - window_m), s_bnd, n_pts)
+        else:
+            s_vals = np.linspace(min(L, s_bnd + window_m), s_bnd, n_pts)
     else:   # departure
         if is_forward:
-            s_vals = np.linspace(s_bnd, min(L, s_bnd + 20.0), n_pts)
+            s_vals = np.linspace(s_bnd, min(L, s_bnd + window_m), n_pts)
         else:
-            s_vals = np.linspace(s_bnd, max(0.0, s_bnd - 20.0), n_pts)
+            s_vals = np.linspace(s_bnd, max(0.0, s_bnd - window_m), n_pts)
  
     t_vals         = np.interp(s_vals, cum_dist, unew)
     x_vals, y_vals = splev(t_vals, tck)
@@ -303,6 +315,7 @@ def _build_turn_spline(approach_seg, departure_seg,
                         segment_registry, geometry_store,
                         approach_s_change_key='s_change',
                         departure_s_change_key='s_change',
+                        approach_window_m=20.0, departure_window_m=20.0,
                         n_pts=10, n_connector=100,
                         angle_threshold_deg=5, verbose=False):
     """
@@ -321,10 +334,12 @@ def _build_turn_spline(approach_seg, departure_seg,
     pts_app = _sample_near_boundary(
         approach_seg,  'approach',  segment_registry, geometry_store,
         s_change_key=approach_s_change_key,  n_pts=n_pts,
+        window_m=approach_window_m,
     )
     pts_dep = _sample_near_boundary(
         departure_seg, 'departure', segment_registry, geometry_store,
         s_change_key=departure_s_change_key, n_pts=n_pts,
+        window_m=departure_window_m,
     )
  
     _, connector, method = connect_lines_g2(
@@ -715,6 +730,58 @@ def add_bike_lane_boundaries(segment_registry, geometry_store,
     print(f"\nStep 2b complete: {n_found} boundary/boundaries projected ✓\n")
     
 
+def add_bike_lane_width_profile(segment_registry, geometry_store):
+    """
+    Build w_bike(s) for segments whose painted lane changes width.
+
+    Each 'w_taper' names two boundary keys already projected onto the axis in
+    Phase 1, plus the width on each side. The result is an interp1d that ramps
+    linearly between them and holds constant outside:
+
+        'bike_lane': {'w_bike': 2.5,                   # w_bike_at fallback
+                      'w_taper': {'from_key': 'w_quaibr_end_2p5',   'w_from': 2.5,
+                                  'to_key':   'w_quaibr_start_1p5', 'w_to':   1.5}}
+
+    w_taper may also be a list of such dicts. Segments without one keep the
+    scalar width and are left untouched.
+    """
+    n_found = 0
+
+    for seg_key, entry in segment_registry.items():
+        bike_lane = entry.get('bike_lane')
+        if bike_lane is None or 'w_taper' not in bike_lane:
+            continue
+
+        geo    = geometry_store[entry['geometry_key']]
+        tapers = bike_lane['w_taper']
+        if isinstance(tapers, dict):
+            tapers = [tapers]
+
+        # (s, w) per transverse line, sorted along the axis
+        knots = sorted((float(geo[t[s_key]]), float(t[w_key]))
+                       for t in tapers
+                       for s_key, w_key in (('from_key', 'w_from'),
+                                            ('to_key',   'w_to')))
+        s_k, w_k = (np.array(a) for a in zip(*knots))
+
+        if np.any(np.diff(s_k) < 1e-6):
+            raise ValueError(f"add_bike_lane_width_profile: '{seg_key}' has "
+                             f"coincident width knots — a step change needs a "
+                             f"non-zero taper length.")
+
+        bike_lane['w_bike_spline'] = interp1d(
+            s_k, w_k, kind='linear', bounds_error=False,
+            fill_value=(w_k[0], w_k[-1]), assume_sorted=True,
+        )
+        bike_lane['w_range'] = (float(w_k.min()), float(w_k.max()))
+
+        print(f"  {seg_key}: " + "  →  ".join(f"{w:.2f} m @ s={s:.2f}"
+                                              for s, w in knots))
+        n_found += 1
+
+    print(f"\nVarying Bike Lane Widths: {n_found} width profile(s) built ✓\n")
+
+
 def _d_bounds_from_polygon(polygon_local, tck, unew, cum_dist,
                             ds=0.5, d_search=15.0):
     """
@@ -906,6 +973,8 @@ def build_turns(geometry_store, segment_registry, turn_defs,
         d_right   = float(td.get('d_right', 15.0))
         app_key   = td.get('approach_s_change_key',  's_change')
         dep_key   = td.get('departure_s_change_key', 's_change')
+        app_win   = float(td.get('approach_window_m',  20.0))
+        dep_win   = float(td.get('departure_window_m', 20.0))
         turn_key  = f'turn_{app_seg}_2_{dep_seg}'
  
         print(f"  Building {turn_key} ...", end=' ', flush=True)
@@ -916,6 +985,8 @@ def build_turns(geometry_store, segment_registry, turn_defs,
                 segment_registry, geometry_store,
                 approach_s_change_key=app_key,
                 departure_s_change_key=dep_key,
+                approach_window_m=app_win,
+                departure_window_m=dep_win,
                 n_pts=n_pts,
                 n_connector=n_connector,
                 angle_threshold_deg=angle_threshold_deg,
@@ -992,7 +1063,7 @@ def build_movement_registry(geometry_store, segment_registry, movement_defs):
     -------
     movement_registry : dict  {key: [(seg_key, role), …]}
     """
-    VALID_ROLES = {'approach', 'turn', 'departure'}
+    VALID_ROLES = {'approach', 'turn', 'ring', 'departure'}
     movement_registry = {}
     errors = []
  
@@ -1024,6 +1095,9 @@ def build_movement_registry(geometry_store, segment_registry, movement_defs):
                 ok = False
             if role == 'turn' and seg_type != 'turn':
                 errors.append(f"  {key}: '{sk}' type='{seg_type}' but role='turn'")
+                ok = False
+            if role == 'ring' and seg_type != 'ring':
+                errors.append(f"  {key}: '{sk}' type='{seg_type}' but role='ring'")
                 ok = False
         if not ok:
             continue
@@ -1315,16 +1389,448 @@ def build_intersection_polygon(arm_defs, geometry_store, segment_registry):
     return poly
 
 
+# #############################################################################
+# Location 7: Handling Ring Geometries for Roundabouts
+# #############################################################################
+from shapely.ops import transform
+from tools_utils import _PROJ_LONLAT_TO_2056, _PROJ_2056_TO_LONLAT
+
+# A gate ray is drawn outward from the center point; its inner endpoint is
+# only as accurate as the drawing. Anything further than this from the
+# center means the feature is not a radial ray and the file needs checking.
+RAY_ORIGIN_TOL_M = 1.5
+ 
+# Disagreement between the projected gate and the ray's own tip bearing
+# above which the ray is probably drawn carelessly.
+GATE_XCHECK_M = 0.25
+ 
+# A gate closer than this to s = 0 could be reported as either ~0 or ~L.
+SEAM_CLEARANCE_M = 0.5
 
 
+def read_ring_kml(gdf_kml, prefix='Bullingerpl_RA', verbose=True):
+    """
+    Read a swisstopo roundabout drawing.
+ 
+    Takes the GeoDataFrame the site file has already loaded.
+    Expected features, labelled in the KML description:
+        <prefix>_C                Point       — center
+        <prefix>_Rinner           LineString  — radial ray, center to inner kerb
+        <prefix>_Router           LineString  — radial ray, center to outer kerb
+        <prefix>_Entry_<leg>      LineString  — radial ray, see below
+        <prefix>_Exit_<leg>       LineString  — radial ray, see below
+        <leg>_Stop, <leg>_Yield   LineString  — optional, used only to check
+                                                circulation sense
+ 
+    Entry and Exit are named for the RING, not for the leg:
+        Entry_<leg>   where traffic coming from <leg> JOINS the ring
+        Exit_<leg>    where traffic LEAVES the ring onto <leg>
+ 
+    This function returns GEOMETRY, not arc-length.
+ 
+    Returns
+    -------
+    ring : dict
+        prefix      str
+        center      (2,) array — EPSG:2056, NOT offset
+        r_inner     float [m]
+        r_outer     float [m]
+        R           float [m] — circulating centerline radius
+        L_ring      float [m] — 2 pi R
+        legs        list of str, sorted
+        gates       {(leg, 'Entry'|'Exit'): LineString} — WGS84, as drawn
+        theta_tip   {(leg, 'Entry'|'Exit'): float} — deg CCW from east
+        checks      dict — see _validate_ring()
+    """
+    # fiona calls it 'Description', pyogrio 'description'; geopandas 1.0
+    # switched engines, so match case-insensitively.
+    if 'Description' in gdf_kml.columns:
+        col = 'Description'
+    elif 'description' in gdf_kml.columns:
+        col = 'description'
+    else:
+        raise ValueError(f"read_ring_kml: no description column. Columns are "
+                         f"{list(gdf_kml.columns)}.")
+ 
+    # --- index the frame, and keep a metric copy for the radii / bearings ----
+    # Offsets are NOT applied: radii and angles are offset-invariant, and the
+    # local origin only enters at Phase 1 in register_ring_geometry.
+    to_2056 = lambda x, y, z=None: _PROJ_LONLAT_TO_2056.transform(x, y)
+    geoms, feats = {}, {}
+    for desc, geom in zip(gdf_kml[col], gdf_kml.geometry):
+        if geom is None or geom.is_empty:
+            continue
+        desc = str(desc).strip()
+        if not desc:
+            continue
+        if desc in geoms:
+            raise ValueError(f"read_ring_kml: duplicate description '{desc}'.")
+        g = transform(to_2056, geom)
+        coords = (g.exterior.coords if g.geom_type == 'Polygon'
+                  else g.coords if hasattr(g, 'coords') else None)
+        if coords is None:
+            continue
+        geoms[desc] = geom
+        feats[desc] = np.asarray(coords, dtype=float)[:, :2]
+ 
+    if f'{prefix}_C' not in feats:
+        raise ValueError(f"read_ring_kml: center '{prefix}_C' not found among "
+                         f"{len(feats)} features; check the prefix.")
+    center = feats[f'{prefix}_C'][0]
+ 
+    def _ray(desc):
+        """
+        (tip bearing [deg CCW from east], tip radius [m]) of a radial ray.
+ 
+        The bearing is taken at the FAR endpoint. The near endpoint sits
+        within centimetres of the center, where a small drawing error is tens
+        of degrees, so it carries almost no angular information.
+        """
+        if desc not in feats:
+            raise ValueError(f"read_ring_kml: feature '{desc}' not found.")
+        r = np.hypot(*(feats[desc] - center).T)
+        if r.min() > RAY_ORIGIN_TOL_M:
+            raise ValueError(f"read_ring_kml: '{desc}' does not start at the "
+                             f"center (nearest endpoint {r.min():.2f} m away). "
+                             f"Expected a radial ray drawn out from {prefix}_C.")
+        v = feats[desc][int(np.argmax(r))] - center
+        return float(np.degrees(np.arctan2(v[1], v[0])) % 360.0), float(r.max())
+ 
+    # --- radii ---------------------------------------------------------------
+    _, r_inner = _ray(f'{prefix}_Rinner')
+    _, r_outer = _ray(f'{prefix}_Router')
+    if not 0.0 < r_inner < r_outer:
+        raise ValueError(f"read_ring_kml: implausible radii "
+                         f"r_inner={r_inner:.2f} r_outer={r_outer:.2f}")
+    R = 0.5 * (r_inner + r_outer)
+ 
+    # --- gates ---------------------------------------------------------------
+    gates, theta_tip, legs = {}, {}, set()
+    for desc in feats:
+        for kind in ('Entry', 'Exit'):
+            token = f'{prefix}_{kind}_'
+            if not desc.startswith(token):
+                continue
+            leg = desc[len(token):]
+            th, r_far = _ray(desc)
+            if r_far < r_outer:
+                raise ValueError(f"read_ring_kml: '{desc}' ends inside the "
+                                 f"outer kerb ({r_far:.2f} m < {r_outer:.2f} m), "
+                                 f"so it never crosses the circulating "
+                                 f"centerline and cannot be projected.")
+            gates[(leg, kind)] = geoms[desc]
+            theta_tip[(leg, kind)] = th
+            legs.add(leg)
+ 
+    legs = sorted(legs)
+    if not legs:
+        raise ValueError(f"read_ring_kml: no '{prefix}_Entry_*' features found.")
+    missing = [(l, k) for l in legs for k in ('Entry', 'Exit')
+               if (l, k) not in gates]
+    if missing:
+        raise ValueError(f"read_ring_kml: incomplete Entry/Exit pairs: {missing}")
+ 
+    ring = {'prefix': prefix, 'center': np.asarray(center, dtype=float),
+            'r_inner': r_inner, 'r_outer': r_outer, 'R': R,
+            'L_ring': 2.0 * np.pi * R, 'legs': legs,
+            'gates': gates, 'theta_tip': theta_tip}
+    ring['checks'] = _validate_ring(ring, feats, verbose=verbose)
+ 
+    if verbose:
+        lon, lat = _PROJ_2056_TO_LONLAT.transform(center[0], center[1])
+        print(f"  Ring '{prefix}': center=({center[0]:.3f}, {center[1]:.3f}) "
+              f"LV95  ({lat:.6f}, {lon:.6f})")
+        print(f"    r_inner={r_inner:.2f}  r_outer={r_outer:.2f}  "
+              f"R={R:.2f}  L_ring={ring['L_ring']:.2f} m")
+        print(f"    {len(legs)} legs: {', '.join(legs)}")
+ 
+    return ring
+ 
+
+def _validate_ring(ring, feats, verbose=True):
+    """
+    Geometric checks that need nothing but the drawing.
+ 
+    Run on the tip bearings rather than the projected gates, because these
+    are coarse tests — a leg mouth is 45-60 deg wide and the two estimators
+    differ by under 0.3 deg — and because they must run before the spline
+    exists.
+ 
+    1. circulation sense — a leg's mouth is the CCW arc from where traffic
+       LEAVES the ring onto that leg (Exit) to where traffic from that leg
+       JOINS the ring (Entry). That arc must contain the leg's own Yield
+       line. A leg failing this has its Entry/Exit labels swapped, or the
+       roundabout circulates clockwise.
+    2. mouth nesting — mouths of adjacent legs must not overlap. Overlap
+       means one leg's rays are drawn too wide, and every movement arc
+       through that pair is then wrong.
+    3. annulus width — the circulating carriageway must be wide enough to be
+       worth modelling as a corridor.
+    """
+    legs, theta = ring['legs'], ring['theta_tip']
+    out = {'sense_ok': [], 'sense_bad': [], 'overlaps': [],
+           'annulus_width': ring['r_outer'] - ring['r_inner']}
+ 
+    for leg in legs:
+        th_ex, th_en = theta[(leg, 'Exit')], theta[(leg, 'Entry')]
+        mouth = (th_en - th_ex) % 360.0
+        yld = feats.get(f'{leg}_Yield')
+        if yld is None:
+            continue
+        v = yld.mean(axis=0) - ring['center']
+        th_y = np.degrees(np.arctan2(v[1], v[0])) % 360.0
+        (out['sense_ok'] if ((th_y - th_ex) % 360.0) <= mouth
+         else out['sense_bad']).append(leg)
+ 
+    if out['sense_bad'] and verbose:
+        print(f"    [WARN] circulation sense fails for {out['sense_bad']} — "
+              f"Entry/Exit may be swapped, or this roundabout is not "
+              f"counter-clockwise.")
+ 
+    for i, a in enumerate(legs):
+        for b in legs[i + 1:]:
+            a0 = theta[(a, 'Exit')]
+            aw = (theta[(a, 'Entry')] - a0) % 360.0
+            b0 = theta[(b, 'Exit')]
+            bw = (theta[(b, 'Entry')] - b0) % 360.0
+            if ((b0 - a0) % 360.0) < aw or ((a0 - b0) % 360.0) < bw:
+                out['overlaps'].append((a, b))
+ 
+    if out['overlaps'] and verbose:
+        for a, b in out['overlaps']:
+            print(f"    [WARN] mouths of '{a}' and '{b}' overlap on the ring — "
+                  f"movement arcs through this pair are unreliable. Redraw "
+                  f"the Entry/Exit rays.")
+ 
+    if out['annulus_width'] < 2.0 and verbose:
+        print(f"    [WARN] annulus is only {out['annulus_width']:.2f} m wide.")
+ 
+    return out
 
 
+def _ring_spline(cx, cy, R, theta0_rad, x_offset, y_offset, n_ctrl=180):
+    """
+    Periodic B-spline of the circulating centerline, parameterised
+    counter-clockwise from theta0, plus the matching closed WGS84 ring.
+ 
+    (cx, cy) are LOCAL; the WGS84 ring adds the offsets back.
+ 
+    Delegates to fit_roadway_centerline_spline(periodic=True) so the cum_dist
+    convention is defined in exactly one place. splprep(per=1) requires the
+    sample set to close, i.e. the last point repeats the first.
+    """
+    th = theta0_rad + np.linspace(0.0, 2.0 * np.pi, n_ctrl + 1)
+    x, y = cx + R * np.cos(th), cy + R * np.sin(th)
+ 
+    tck, unew, cum_dist = fit_roadway_centerline_spline(
+        list(zip(x, y)), smoothing=0, coordsys='2056', periodic=True,
+    )
+    lon, lat = _PROJ_2056_TO_LONLAT.transform(x + x_offset, y + y_offset)
+    return tck, unew, cum_dist, LineString(np.column_stack([lon, lat]))
+ 
+ 
+def register_ring_geometry(ring, x_offset, y_offset, name=None, verbose=True):
+    """
+    Phase 1 for a roundabout: build the geometry_store entry for the
+    circulating carriageway.
+ 
+    Returns ONE entry, to be merged into the geometry_store produced by
+    register_geometries():
+        geometry_store[name] = register_ring_geometry(ring, X_off, Y_off)
+ 
+    Gate arc-lengths: Each gate line is projected onto the circulating centerline with
+    project_line_onto_spline
+ 
+    Anchor: s = 0 is due EAST of the center, always, with no per-site choice.
+ 
+    Orientation: positive_dir is 'CCW' and the spline is parameterised counter-clockwise,
+    i.e. s increases in the legal direction of travel.
+ 
+    Gates: Each leg contributes 's_entry_<leg>' and 's_exit_<leg>' as plain scalars.
+ 
+    Parameters
+    ----------
+    ring     : dict from read_ring_kml()
+    x_offset, y_offset : float — EPSG:2056 local origin
+    name     : str — geometry_store key. Defaults to '<prefix>_Ring'.
+ 
+    Returns
+    -------
+    entry : dict
+    """
+    name = name or f"{ring['prefix']}_Ring"
+    R, L = ring['R'], ring['L_ring']
+    cx = float(ring['center'][0]) - x_offset
+    cy = float(ring['center'][1]) - y_offset
+ 
+    tck, unew, cum, line_wgs84 = _ring_spline(cx, cy, R, 0.0,
+                                              x_offset, y_offset)
+    if abs(float(cum[-1]) - L) > 0.05:
+        raise ValueError(f"register_ring_geometry: fitted ring length "
+                         f"{cum[-1]:.3f} m disagrees with 2*pi*R = {L:.3f} m")
+ 
+    entry = {
+        # --- standard geometry_store interface -------------------------------
+        'spline':       (tck, unew, cum),
+        'total_length': L,
+        'positive_dir': 'CCW',
+        'line_wgs84':   line_wgs84,
+ 
+        # --- ring-specific: consumed by the periodic branch in V5 ------------
+        'periodic':     True,
+        'center':       (cx, cy),          # LOCAL, offsets already applied
+        'radius':       R,
+        'r_inner':      ring['r_inner'],
+        'r_outer':      ring['r_outer'],
+        'theta0_deg':   0.0,               # s = 0 due east, by definition
+        'ring_legs':    list(ring['legs']),
+    }
+ 
+    for (leg, kind), gate_line in ring['gates'].items():
+        s = float(project_line_onto_spline(
+            line_wgs84, gate_line, tck, unew, cum, x_offset, y_offset,
+        ))
+        entry[f's_{kind.lower()}_{leg}'] = s
+ 
+        # Cross-check against the ray's own tip bearing. The two answer
+        # slightly different questions — where the LINE crosses the ring
+        # versus where the TIP points — so they agree only if the ray really
+        # is radial about the center.
+        s_tip = ring['theta_tip'][(leg, kind)] * np.pi / 180.0 * R
+        gap = abs((s - s_tip + L / 2.0) % L - L / 2.0)
+        if gap > GATE_XCHECK_M and verbose:
+            print(f"    [WARN] {kind}_{leg}: projected gate and ray tip "
+                  f"bearing disagree by {gap:.2f} m — check that ray is "
+                  f"drawn through the gate.")
+ 
+        if min(s, L - s) < SEAM_CLEARANCE_M and verbose:
+            print(f"    [WARN] {kind}_{leg} sits {min(s, L - s):.2f} m from "
+                  f"the s = 0 seam; wrap comparisons against it are fragile.")
+ 
+    if verbose:
+        print(f"  Registering {name}  (L={L:.1f} m, positive_dir=CCW, "
+              f"s=0 due east)")
+        gates = sorted(((k, v) for k, v in entry.items()
+                        if k.startswith('s_')), key=lambda kv: kv[1])
+        for k, v in gates:
+            print(f"    {k:34s} s={v:7.2f} m")
+        order = [k for k, _ in gates]
+        if any(order[i].startswith('s_entry') and order[i + 1].startswith('s_entry')
+               for i in range(len(order) - 1)):
+            print("    [INFO] two consecutive entry gates — adjacent legs "
+                  "share a mouth; check the movement arcs for that pair.")
+ 
+    return entry
 
 
-
-
-
-
-
-
+def _ring_corridor_polygon(center, d_left, d_right, radius, n_sample=256):
+    """
+    Validity polygon for a circulating carriageway: an annulus.
+ 
+    Built from the corridor half-widths rather than the kerb radii, so the
+    polygon and the d bounds in the segment registry can never disagree.
+        d_left  = radius - r_inner     (inward  half-width)
+        d_right = r_outer - radius     (outward half-width)
+ 
+    Parameters
+    ----------
+    center    : (cx, cy) — LOCAL frame, offsets already applied
+    d_left    : float [m] — corridor extent toward the center
+    d_right   : float [m] — corridor extent away from the center
+    radius    : float [m] — circulating centerline radius
+    n_sample  : int — vertices per ring
+ 
+    Returns
+    -------
+    shapely.geometry.Polygon — with one interior ring
+    """
+    cx, cy = float(center[0]), float(center[1])
+    r_in = radius - d_left
+    r_out = radius + d_right
+ 
+    if r_in <= 0.0:
+        raise ValueError(f"_ring_corridor_polygon: d_left={d_left:.2f} m "
+                         f"reaches past the center (radius={radius:.2f} m); "
+                         f"the corridor would not be an annulus.")
+    if r_out <= r_in:
+        raise ValueError(f"_ring_corridor_polygon: inner radius {r_in:.2f} m "
+                         f"is not smaller than outer {r_out:.2f} m.")
+ 
+    th = np.linspace(0.0, 2.0 * np.pi, n_sample + 1)[:-1]
+    outer = np.column_stack([cx + r_out * np.cos(th), cy + r_out * np.sin(th)])
+    inner = np.column_stack([cx + r_in * np.cos(th), cy + r_in * np.sin(th)])
+ 
+    # Shapely convention: shell CCW, holes CW.
+    poly = Polygon(outer, [inner[::-1]])
+    if not poly.is_valid:
+        poly = poly.buffer(0)
+    return poly
+ 
+ 
+def build_ring_segment(geometry_store, segment_registry, ring_seg_def,
+                       verbose=True):
+    """
+    Register the circulating carriageway as one segment, and add it to 
+    segment_registry in place.
+    Registered with type='ring' rather than 'turn'.
+ 
+    ring_seg_def keys
+    -----------------
+        seg_key       str        — registry key, e.g. 'Bullingerpl_RA_CCW'
+        geometry_key  str        — key into geometry_store
+        mode          str        — 'shared' | 'bike' | 'car'. Default 'shared'
+        d_left        float      — optional [m], inward.  Default radius-r_inner
+        d_right       float      — optional [m], outward. Default r_outer-radius
+ 
+    Returns
+    -------
+    segment_registry : dict — same object, mutated
+    """
+    seg_key = ring_seg_def['seg_key']
+    geom_key = ring_seg_def['geometry_key']
+    mode = ring_seg_def.get('mode', 'shared')
+ 
+    geo = geometry_store[geom_key]
+    if not geo.get('periodic'):
+        raise ValueError(f"build_ring_segment: geometry '{geom_key}' is not a "
+                         f"ring (no 'periodic' flag). Register it with "
+                         f"register_ring_geometry() first.")
+    if geo.get('positive_dir') != 'CCW':
+        raise ValueError(f"build_ring_segment: geometry '{geom_key}' has "
+                         f"positive_dir={geo.get('positive_dir')!r}, expected "
+                         f"'CCW'.")
+ 
+    R = geo['radius']
+    d_left = float(ring_seg_def.get('d_left', R - geo['r_inner']))
+    d_right = float(ring_seg_def.get('d_right', geo['r_outer'] - R))
+ 
+    validity_poly = _ring_corridor_polygon(geo['center'], d_left, d_right, R)
+ 
+    segment_registry[seg_key] = {
+        'type':             'ring',
+        'geometry_key':     geom_key,
+        'direction':        'CCW',
+        # positive_dir == direction, so travel and spline agree by
+        # construction; the mirrored state carries clockwise riders.
+        'is_forward':       True,
+        'mode':             mode,
+        'bike_lane':        None,
+        'd_left':           d_left,
+        'd_right':          d_right,
+        'd_max':            max(d_left, d_right),
+        'car_lane_d_bnd':   {},
+        'validity_polygon': validity_poly,
+    }
+ 
+    if verbose:
+        r_in, r_out = R - d_left, R + d_right
+        exp = np.pi * (r_out ** 2 - r_in ** 2)
+        print(f"  {seg_key}  (ring, mode={mode}, "
+              f"d_left={d_left:.2f} in / d_right={d_right:.2f} out, "
+              f"r={r_in:.2f}..{r_out:.2f} m)")
+        print(f"    annulus area {validity_poly.area:.1f} m^2 "
+              f"(analytic {exp:.1f} m^2), "
+              f"{len(geo.get('ring_legs', []))} legs")
+ 
+    return segment_registry
 

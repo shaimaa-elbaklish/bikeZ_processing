@@ -3,7 +3,7 @@ TITLE
 -------------------------------------------
 Authors:        Shaimaa K. El-Baklish
 Organization:   ETH Zürich, Switzerland, IVT - Institute for Transportation Planning and Systems
-Development:    2025
+Development:    2025-2026
 Submitted to:   JOURNAL
 -------------------------------------------
 """
@@ -17,18 +17,22 @@ import folium
 
 import numpy as np
 
-from pyproj import Transformer
 from shapely.geometry import LineString
 from collections import defaultdict
 from shapely.ops import transform
 from scipy.interpolate import splev
-from shapely.ops import transform as shp_transform
+# from shapely.ops import transform as shp_transform
+
+from tools_utils import _PROJ_2056_TO_LONLAT 
+from tools_utils import _is_axis_entry, _build_color_map, _local_to_latlon
+from tools_utils import _spline_xy_to_latlon, _spline_xy_variable_offset_to_latlon
+from tools_utils import w_bike_at, w_bike_label
+from tools_utils import _polygon_rings_latlon, _is_ring_entry, _ring_arc_latlon
 
 ###############################################################################
 # CONSTANTS: Projection
 ###############################################################################
-transformer_xy2056_to_lonlat = Transformer.from_crs("EPSG:2056", "EPSG:4326", always_xy=True)
-project_xy2056_to_lonlat = lambda x, y, z=None: transformer_xy2056_to_lonlat.transform(x, y)
+project_xy2056_to_lonlat = lambda x, y, z=None: _PROJ_2056_TO_LONLAT.transform(x, y)
 
 
 ###############################################################################
@@ -216,152 +220,12 @@ def plot_bicycles_trajectories_xy_2056(m, traj_df, linecolor='black',
 
 
 # =============================================================================
-# COLOR MAP
-# =============================================================================
-_PALETTE = [
-    '#4878d0', '#ee854a', '#6acc65', '#d65f5f',
-    '#956cb4', '#8c613c', '#dc7ec0', '#797979',
-    '#d5bb67', '#82c6e2', '#e45858', '#56b4e9',
-]
- 
-def _is_axis_entry(key, val):
-    """True if geometry_store entry is a spline-based axis dict."""
-    if key in ('x_offset', 'y_offset'):
-        return False
-    if key.startswith('intersection_area') or key.startswith('__'):
-        return False
-    return isinstance(val, dict)
- 
- 
-def _build_color_map(geometry_store):
-    """
-    {geom_key: hex_color} for all lane axes (non-turn entries).
-    Turn entries and non-dict entries (intersection area polygons) get
-    '#888888'.
-    """
-    lane_keys = [
-        k for k, v in geometry_store.items()
-        if _is_axis_entry(k, v) and v.get('s_stop') is not None
-    ]
-    cmap = {k: _PALETTE[i % len(_PALETTE)] for i, k in enumerate(lane_keys)}
-    for k, v in geometry_store.items():
-        if _is_axis_entry(k, v) and k not in cmap:
-            cmap[k] = '#888888'
-    return cmap
-
-# =============================================================================
 # PROJECTION HELPERS
 # =============================================================================
-def _local_to_latlon(x_arr, y_arr, x_offset, y_offset):
-    """Convert local EPSG:2056 coords to [(lat, lon), …] for folium."""
-    lon, lat = transformer_xy2056_to_lonlat.transform(
-        np.asarray(x_arr) + x_offset,
-        np.asarray(y_arr) + y_offset,
-    )
-    return list(zip(lat, lon))
- 
- 
 def _kml_geom_to_latlon(geometry):
     """WGS84 KML geometry → [(lat, lon), …]."""
     coords = list(geometry.coords)
     return [(c[1], c[0]) for c in coords]
- 
- 
-def _spline_to_latlon(tck, unew, cum_dist, s_start, s_end,
-                      x_offset, y_offset, n=150):
-    """Evaluate spline between s_start and s_end → [(lat, lon), …]."""
-    s_vals = np.linspace(s_start, s_end, n)
-    t_vals = np.interp(s_vals, cum_dist, unew)
-    x_loc, y_loc = splev(t_vals, tck)
-    return _local_to_latlon(x_loc, y_loc, x_offset, y_offset)
-
-
-def _spline_sd_to_latlon(tck, unew, cum_dist, s_vals, d_vals,
-                          x_offset, y_offset):
-    """
-    Like _spline_to_latlon, but accepts an array of per-point lateral
-    offsets (d_vals) instead of a fixed d_offset — needed when the offset
-    varies along s (e.g. a bike lane boundary spline).
-
-    s_vals, d_vals : arrays of the same length, d in metres (left = +).
-    Returns a list of (lat, lon) tuples.
-    """
-    t_vals = np.interp(s_vals, cum_dist, unew)
-    x_c,  y_c  = splev(t_vals, tck, der=0)
-    dx_c, dy_c = splev(t_vals, tck, der=1)
-    tang = np.sqrt(dx_c**2 + dy_c**2)
-    tang = np.where(tang > 1e-12, tang, 1.0)
-    nx = -dy_c / tang   # left normal, same convention as _spline_xy / _spline_to_latlon
-    ny =  dx_c / tang
-    x_c = x_c + d_vals * nx
-    y_c = y_c + d_vals * ny
-    return _local_to_latlon(x_c, y_c, x_offset, y_offset)
- 
- 
-def _s_to_latlon(s_val, tck, unew, cum_dist, x_offset, y_offset):
-    """Single arc-length value → (lat, lon)."""
-    t_val    = float(np.interp(s_val, cum_dist, unew))
-    x_v, y_v = splev(t_val, tck)
-    lon, lat  = transformer_xy2056_to_lonlat.transform(x_v + x_offset, y_v + y_offset)
-    return (lat, lon)
-
-
-def _polygon_coords(poly, x_offset, y_offset):
-    """
-    Convert a Shapely Polygon or MultiPolygon to a list of
-    [(lat, lon), …] rings for folium. Returns list of rings
-    (each ring is a list of (lat, lon) tuples).
-    Returns empty list if geometry is empty or invalid.
-    """
-    from shapely.geometry import MultiPolygon
-    if poly is None or poly.is_empty:
-        return []
-    if isinstance(poly, MultiPolygon):
-        geoms = list(poly.geoms)
-    else:
-        geoms = [poly]
-    rings = []
-    for g in geoms:
-        try:
-            px, py = g.exterior.xy
-            rings.append(_local_to_latlon(px, py, x_offset, y_offset))
-        except Exception:
-            pass
-    return rings
- 
-# =============================================================================
-# COLOR MAP
-# =============================================================================
-_PALETTE = [
-    '#4878d0', '#ee854a', '#6acc65', '#d65f5f',
-    '#956cb4', '#8c613c', '#dc7ec0', '#797979',
-    '#d5bb67', '#82c6e2', '#e45858', '#56b4e9',
-]
- 
-def _is_axis_entry(key, val):
-    """True if geometry_store entry is a spline-based axis dict."""
-    if key in ('x_offset', 'y_offset'):
-        return False
-    if key.startswith('intersection_area') or key.startswith('__'):
-        return False
-    return isinstance(val, dict)
- 
- 
-def _build_color_map(geometry_store):
-    """
-    {geom_key: hex_color} for all lane axes (non-turn entries).
-    Turn entries and non-dict entries (intersection area polygons) get
-    '#888888'.
-    """
-    lane_keys = [
-        k for k, v in geometry_store.items()
-        if _is_axis_entry(k, v) and v.get('s_stop') is not None
-    ]
-    cmap = {k: _PALETTE[i % len(_PALETTE)] for i, k in enumerate(lane_keys)}
-    for k, v in geometry_store.items():
-        if _is_axis_entry(k, v) and k not in cmap:
-            cmap[k] = '#888888'
-    return cmap
  
  
 # =============================================================================
@@ -414,7 +278,7 @@ def create_registry_map(geometry_store, segment_registry, movement_registry,
                 continue
             tck, unew, _ = v['spline']
             x_m, y_m     = splev(unew[len(unew) // 2], tck)
-            lon_c, lat_c = transformer_xy2056_to_lonlat.transform(x_m + x_offset, y_m + y_offset)
+            lon_c, lat_c = _PROJ_2056_TO_LONLAT.transform(x_m + x_offset, y_m + y_offset)
             center_lat, center_lon = lat_c, lon_c
             break
     
@@ -548,7 +412,7 @@ def create_registry_map(geometry_store, segment_registry, movement_registry,
             # Label at centroid
             cx_local = float(ia_poly.centroid.x)
             cy_local = float(ia_poly.centroid.y)
-            lon_c, lat_c = transformer_xy2056_to_lonlat.transform(
+            lon_c, lat_c = _PROJ_2056_TO_LONLAT.transform(
                 cx_local + x_offset, cy_local + y_offset
             )
             folium.Marker(
@@ -570,12 +434,14 @@ def create_registry_map(geometry_store, segment_registry, movement_registry,
     # GROUP 1 — Road axes (one FeatureGroup per geometry key)
     # =========================================================================
     for geom_key, geo in geometry_store.items():
-        if not _is_axis_entry(geom_key, geo) or geo.get('s_stop') is None:
+        if not _is_axis_entry(geom_key, geo):
+            continue
+        if geo.get('s_stop') is None and not _is_ring_entry(geo):
             continue
  
         tck, unew, cum_dist = geo['spline']
         L                   = geo['total_length']
-        s_change            = geo['s_change']
+        s_change            = geo.get('s_change')
         col                 = color_map[geom_key]
  
         fg = folium.FeatureGroup(
@@ -583,7 +449,7 @@ def create_registry_map(geometry_store, segment_registry, movement_registry,
         )
  
         # Full centerline
-        latlon = _spline_to_latlon(
+        latlon = _spline_xy_to_latlon(
             tck, unew, cum_dist, 0, L, x_offset, y_offset
         )
         folium.PolyLine(
@@ -607,21 +473,22 @@ def create_registry_map(geometry_store, segment_registry, movement_registry,
         ).add_to(fg)
  
         # Primary s_change marker
-        latlon_sc = _s_to_latlon(s_change, tck, unew, cum_dist,
-                                  x_offset, y_offset)
-        folium.CircleMarker(
-            location=latlon_sc,
-            radius=7, color=col, fill=True, fill_color='white',
-            fill_opacity=0.9, weight=3,
-            tooltip=f'{geom_key}  s_change={s_change:.2f} m',
-        ).add_to(fg)
+        if geo.get('s_change') is not None:
+            latlon_sc = _spline_xy_to_latlon(tck, unew, cum_dist, s_change, s_change,
+                                 x_offset, y_offset, n=1)[0]
+            folium.CircleMarker(
+                location=latlon_sc,
+                radius=7, color=col, fill=True, fill_color='white',
+                fill_opacity=0.9, weight=3,
+                tooltip=f'{geom_key}  s_change={s_change:.2f} m',
+            ).add_to(fg)
  
         # Extra s_change_* markers (secondary junctions)
         for key in [k for k in geo if k.startswith('s_')
                     and k not in ('s_stop', 's_yield', 's_change')]:
             sc_val     = geo[key]
-            latlon_ec  = _s_to_latlon(sc_val, tck, unew, cum_dist,
-                                       x_offset, y_offset)
+            latlon_ec  = _spline_xy_to_latlon(tck, unew, cum_dist, sc_val, sc_val,
+                                 x_offset, y_offset, n=1)[0]
             folium.CircleMarker(
                 location=latlon_ec,
                 radius=6, color=col, fill=True, fill_color='yellow',
@@ -635,7 +502,7 @@ def create_registry_map(geometry_store, segment_registry, movement_registry,
     # GROUP 2 — Lane segments
     # =========================================================================
     for seg_key, entry in segment_registry.items():
-        if entry['type'] != 'lane':
+        if entry['type'] not in ('lane', 'ring'):
             continue
  
         geom_key            = entry['geometry_key']
@@ -647,12 +514,12 @@ def create_registry_map(geometry_store, segment_registry, movement_registry,
         geo                 = geometry_store[geom_key]
         tck, unew, cum_dist = geo['spline']
         L                   = geo['total_length']
-        s_change            = geo['s_change']
+        s_change            = geo.get('s_change')
  
         fg = folium.FeatureGroup(name=f'Lane: {seg_key}', show=False)
  
         # Validity polygon
-        for ring in _polygon_coords(validity_poly, x_offset, y_offset):
+        for ring in _polygon_rings_latlon(validity_poly, x_offset, y_offset):
             folium.Polygon(
                 locations=ring,
                 color=col, weight=1, opacity=0.5,
@@ -662,7 +529,7 @@ def create_registry_map(geometry_store, segment_registry, movement_registry,
  
         # Full centerline — direction encoded by dash style
         dash = None if is_forward else '6 4'
-        latlon = _spline_to_latlon(
+        latlon = _spline_xy_to_latlon(
             tck, unew, cum_dist, 0, L, x_offset, y_offset
         )
         fwd_str = 'fwd' if is_forward else 'rev'
@@ -674,21 +541,22 @@ def create_registry_map(geometry_store, segment_registry, movement_registry,
         ).add_to(fg)
  
         # s_change boundary marker
-        latlon_sc = _s_to_latlon(s_change, tck, unew, cum_dist,
-                                  x_offset, y_offset)
-        folium.CircleMarker(
-            location=latlon_sc,
-            radius=6, color=col, fill=True, fill_color='white',
-            fill_opacity=1.0, weight=3,
-            tooltip=f'{seg_key}  s_change={s_change:.2f} m',
-        ).add_to(fg)
+        if s_change is not None:
+            latlon_sc = _spline_xy_to_latlon(tck, unew, cum_dist, s_change, s_change,
+                                 x_offset, y_offset, n=1)[0]
+            folium.CircleMarker(
+                location=latlon_sc,
+                radius=6, color=col, fill=True, fill_color='white',
+                fill_opacity=1.0, weight=3,
+                tooltip=f'{seg_key}  s_change={s_change:.2f} m',
+            ).add_to(fg)
  
         # Extra s_change_* markers
         for key in [k for k in geo if k.startswith('s_')
                     and k not in ('s_stop', 's_yield', 's_change')]:
             sc_val    = geo[key]
-            latlon_ec = _s_to_latlon(sc_val, tck, unew, cum_dist,
-                                      x_offset, y_offset)
+            latlon_ec = _spline_xy_to_latlon(tck, unew, cum_dist, sc_val, sc_val,
+                                 x_offset, y_offset, n=1)[0]
             folium.CircleMarker(
                 location=latlon_ec,
                 radius=5, color=col, fill=True, fill_color='yellow',
@@ -724,7 +592,7 @@ def create_registry_map(geometry_store, segment_registry, movement_registry,
         fg    = folium.FeatureGroup(name=f'Turn: {label}', show=False)
  
         # Validity polygon
-        for ring in _polygon_coords(validity_poly, x_offset, y_offset):
+        for ring in _polygon_rings_latlon(validity_poly, x_offset, y_offset):
             folium.Polygon(
                 locations=ring,
                 color=col, weight=1, opacity=0.4,
@@ -733,7 +601,7 @@ def create_registry_map(geometry_store, segment_registry, movement_registry,
             ).add_to(fg)
  
         # Turn spline
-        latlon = _spline_to_latlon(
+        latlon = _spline_xy_to_latlon(
             tck, unew, cum_dist, 0, L, x_offset, y_offset
         )
         folium.PolyLine(
@@ -774,53 +642,83 @@ def create_registry_map(geometry_store, segment_registry, movement_registry,
             name=f'Movement: {mov_key}', show=False
         )
  
-        # Find the turn entry to get its s_change keys
-        turn_entry = None
-        for sk, role in sequence:
-            if segment_registry[sk]['type'] == 'turn':
-                turn_entry = segment_registry[sk]
-                break
- 
+        # Boundaries come from the ADJACENT turn, not the first turn in the
+        # sequence. A through-ring chain has TWO turns, so "first" would pick
+        # the entry turn and then look up its departure key on the departure
+        # leg's geometry, where it does not exist.
+        def _neighbour_turn(i, step):
+            """The turn immediately before (-1) or after (+1) position i."""
+            j = i + step
+            if 0 <= j < len(sequence):
+                sk = sequence[j][0]
+                if segment_registry[sk]['type'] == 'turn':
+                    return segment_registry[sk]
+            return None
+        
         first_latlon = None
         latlon       = None
- 
-        for seg_key, role in sequence:
+        
+        for i, (seg_key, role) in enumerate(sequence):
             entry               = segment_registry[seg_key]
             geom_key            = entry['geometry_key']
             geo                 = geometry_store[geom_key]
             tck, unew, cum_dist = geo['spline']
             L                   = geo['total_length']
             is_fwd              = entry['is_forward']
- 
-            if entry['type'] == 'turn':
-                s_start, s_end = 0.0, L
- 
-            elif role == 'approach' and turn_entry is not None:
-                sc_key = turn_entry.get('approach_s_change_key', 's_change')
-                s_bnd  = geo.get(sc_key, geo['s_change'])
-                s_start, s_end = (0.0, s_bnd) if is_fwd else (s_bnd, L)
- 
-            elif role == 'departure' and turn_entry is not None:
-                sc_key = turn_entry.get('departure_s_change_key', 's_change')
-                s_bnd  = geo.get(sc_key, geo['s_change'])
-                s_start, s_end = (s_bnd, L) if is_fwd else (0.0, s_bnd)
- 
+            arc_txt             = ''
+        
+            if entry['type'] == 'ring':
+                # The arc actually ridden, not the whole circle. Both bounds
+                # are gates on the ring's own geometry, and the adjacent turn
+                # defs already name them:
+                #   entry turn  departure_s_change_key -> 's_entry_<leg>'
+                #   exit  turn  approach_s_change_key  -> 's_exit_<leg>'
+                t_in  = _neighbour_turn(i, -1)
+                t_out = _neighbour_turn(i, +1)
+                k_in  = t_in.get('departure_s_change_key') if t_in else None
+                k_out = t_out.get('approach_s_change_key') if t_out else None
+                s_in  = geo.get(k_in)  if k_in  else None
+                s_out = geo.get(k_out) if k_out else None
+        
+                if s_in is None or s_out is None:
+                    latlon = _spline_xy_to_latlon(
+                        tck, unew, cum_dist, 0.0, L, x_offset, y_offset)
+                else:
+                    latlon = _ring_arc_latlon(
+                        geo, s_in, s_out, x_offset, y_offset)
+                    arc_txt = f'  arc={(s_out - s_in) % L:.1f} m'
+        
             else:
-                s_start, s_end = 0.0, L
- 
-            latlon = _spline_to_latlon(
-                tck, unew, cum_dist, s_start, s_end, x_offset, y_offset
-            )
-            # Reverse reverse-direction segments so latlon runs in travel order
+                if entry['type'] == 'turn':
+                    s_start, s_end = 0.0, L
+                else:
+                    t   = _neighbour_turn(i, +1 if role == 'approach' else -1)
+                    key = (t or {}).get(
+                        'approach_s_change_key' if role == 'approach'
+                        else 'departure_s_change_key', 's_change')
+                    s_bnd = geo.get(key, geo.get('s_change'))
+                    if s_bnd is None:
+                        s_start, s_end = 0.0, L
+                    elif role == 'approach':
+                        s_start, s_end = (0.0, s_bnd) if is_fwd else (s_bnd, L)
+                    else:
+                        s_start, s_end = (s_bnd, L) if is_fwd else (0.0, s_bnd)
+        
+                latlon = _spline_xy_to_latlon(
+                    tck, unew, cum_dist, s_start, s_end, x_offset, y_offset)
+        
+            # Reverse reverse-direction segments so latlon runs in travel order.
+            # A ring is always is_forward=True, and _ring_arc_latlon already
+            # returns travel order, so this leaves it alone.
             if not is_fwd:
                 latlon = latlon[::-1]
- 
+        
             folium.PolyLine(
                 locations=latlon,
                 color=col, weight=6, opacity=0.85,
-                tooltip=f'{mov_key} — {seg_key} [{role}]',
+                tooltip=f'{mov_key} — {seg_key} [{role}]{arc_txt}',
             ).add_to(fg)
- 
+         
             if first_latlon is None:
                 first_latlon = latlon[0]
  
@@ -890,18 +788,20 @@ def add_bike_lane_layer_folium(m, geometry_store, segment_registry,
         tck, unew, cum_dist = geo['spline']
 
         d_bnd_spl    = bike_lane['d_boundary_spline']
-        w_bike       = bike_lane['w_bike']
+        w_bike_lbl   = w_bike_label(bike_lane)
         side         = bike_lane['side']
         s_min, s_max = bike_lane['s_domain']
 
         s_bl  = np.linspace(s_min, s_max, n_pts)
         d_bnd = d_bnd_spl(s_bl)
-        d_far = d_bnd + side * w_bike
+        d_far = d_bnd + side * w_bike_at(bike_lane, s_bl)
 
-        latlon_bnd = _spline_sd_to_latlon(tck, unew, cum_dist, s_bl, d_bnd,
-                                           x_offset, y_offset)
-        latlon_far = _spline_sd_to_latlon(tck, unew, cum_dist, s_bl, d_far,
-                                           x_offset, y_offset)
+        latlon_bnd = _spline_xy_variable_offset_to_latlon(
+            tck, unew, cum_dist, s_bl, d_bnd, x_offset, y_offset
+        )
+        latlon_far = _spline_xy_variable_offset_to_latlon(
+            tck, unew, cum_dist, s_bl, d_far, x_offset, y_offset
+        )
 
         # Filled corridor band
         band = latlon_bnd + latlon_far[::-1] + [latlon_bnd[0]]
@@ -909,7 +809,7 @@ def add_bike_lane_layer_folium(m, geometry_store, segment_registry,
             locations=band,
             color=color, weight=1, opacity=0.6,
             fill=True, fill_color=color, fill_opacity=0.20,
-            tooltip=f'{seg_key} bike lane (w={w_bike:.2f} m)',
+            tooltip=f'{seg_key} bike lane (w={w_bike_lbl})',
         ).add_to(fg_bike_computed)
 
         # Near boundary line (crisper edge)
@@ -924,17 +824,6 @@ def add_bike_lane_layer_folium(m, geometry_store, segment_registry,
     return m
 
 
-def _car_lane_polygon_to_latlon(polygon_local, x_offset, y_offset):
-    """Local-XY (2056-offset) Polygon exterior → [(lat, lon), ...] for folium."""
-    transformer_to_latlon = Transformer.from_crs(
-        "EPSG:2056", "EPSG:4326", always_xy=True
-    )
-    xs = np.array(polygon_local.exterior.xy[0]) + x_offset
-    ys = np.array(polygon_local.exterior.xy[1]) + y_offset
-    lon, lat = transformer_to_latlon.transform(xs, ys)
-    return list(zip(lat, lon))
-
-
 def add_car_lane_layer_folium(m, geometry_store, segment_registry,
                                x_offset, y_offset,
                                n_pts=50, color='#636EFA', show=False):
@@ -946,8 +835,7 @@ def add_car_lane_layer_folium(m, geometry_store, segment_registry,
         (d_lb, d_ub)                  — constant-width tuple, in metres,
                                          NATIVE SPLINE COORDINATES (the same
                                          raw left-normal frame used by
-                                         _spline_sd_to_latlon / bike lane
-                                         boundary splines — NOT the
+                                         bike lane boundary splines — NOT the
                                          travel-direction-relative frame
                                          used by d_left/d_right; no sign
                                          flip needed regardless of
@@ -1004,9 +892,8 @@ def add_car_lane_layer_folium(m, geometry_store, segment_registry,
             if isinstance(lane_val, dict):
                 poly_local = lane_val.get('polygon')
                 if poly_local is not None and not poly_local.is_empty:
-                    latlon = _car_lane_polygon_to_latlon(
-                        poly_local, x_offset, y_offset
-                    )
+                    latlon = _local_to_latlon(
+                        *poly_local.exterior.xy, x_offset, y_offset)
                     folium.Polygon(
                         locations=latlon,
                         color=color, weight=1, opacity=0.6,
@@ -1035,10 +922,12 @@ def add_car_lane_layer_folium(m, geometry_store, segment_registry,
                 d_ub_arr = np.full_like(s_vals, d_ub)
                 tooltip  = f'{tooltip_prefix}  d∈[{d_lb:.2f}, {d_ub:.2f}] m'
 
-            latlon_lb = _spline_sd_to_latlon(tck, unew, cum_dist, s_vals,
-                                              d_lb_arr, x_offset, y_offset)
-            latlon_ub = _spline_sd_to_latlon(tck, unew, cum_dist, s_vals,
-                                              d_ub_arr, x_offset, y_offset)
+            latlon_lb = _spline_xy_variable_offset_to_latlon(
+                tck, unew, cum_dist, s_vals, d_lb_arr, x_offset, y_offset
+            )
+            latlon_ub = _spline_xy_variable_offset_to_latlon(
+                tck, unew, cum_dist, s_vals, d_ub_arr, x_offset, y_offset
+            )
             band = latlon_lb + latlon_ub[::-1] + [latlon_lb[0]]
             folium.Polygon(
                 locations=band,

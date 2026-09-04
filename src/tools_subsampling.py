@@ -1,92 +1,35 @@
 """
-Trajectory Subsampling: 25 FPS → 10 FPS
+TITLE OF PAPAER
 -------------------------------------------
 Authors:        Shaimaa El-Baklish
 Organization:   ETH Zürich, Switzerland, IVT - Institute for Transportation Planning and Systems
-Development:    2025
+Development:    2025-2026
+Submitted to:   JOURNAL
 -------------------------------------------
 
-Overview
---------
-Subsamples EKF-filtered bicycle/vehicle trajectories from 25 FPS to a target
-FPS (default 10 FPS) using timestamp-aware interpolation.
-
-Column treatment
-----------------
-  x_ekf, y_ekf       : cubic spline  (CubicSpline, not-a-knot)
-  speed_ekf           : linear interp + clamp >= 0
-  angle_ekf           : unwrap → linear interp → rewrap
-  a_ekf               : linear interp
-  angular_vel_ekf     : linear interp
-  datetime            : recomputed from interpolated time
-  veh_id, veh_type    : passthrough (scalar per vehicle)
-  off_grid            : True if this row is NOT an exact member of the
-                         shared master grid (i.e. a spliced-in head/tail
-                         from include_heads/include_tails, or the forced
-                         fallback point for an empty-window trajectory).
-                         False for every point taken directly from the
-                         shared grid. Always all-False when
-                         include_heads/include_tails are both left at
-                         their default (False).
-
-Design decisions
-----------------
-- Cubic spline for x/y to preserve path curvature through turns.
-  Falls back to linear interpolation for short trajectories (< 4 frames)
-  where CubicSpline cannot be fit reliably.
-- Linear interp for all scalar signals — EKF+RTS smoothness makes higher-order
-  unnecessary and risks overshoot near sharp maneuvers.
-- Angle unwrapping before interp avoids wrap-around artefacts.
-- Timestamps are used directly as the interp axis → handles drone time
-  arbitration (irregular dt) correctly.
-- SHARED MASTER GRID: the target time grid (grid_anchor + k*dt) is built
-  ONCE per subsample_all() call, from the full multi-vehicle dataframe's
-  [time.min(), time.max()] span. Each vehicle's output timestamps are a
-  SLICE of this single master grid (via np.searchsorted), not a freshly
-  built per-vehicle grid. This guarantees df['time'] is homogeneous
-  across every vehicle in the output (nunique(time) is bounded by the
-  master grid length, exactly), and — when subsample_all() is called
-  separately on two dataframes (e.g. bikes and vehicles) sharing the same
-  grid_anchor and target_fps — across dataframes too.
-- No extrapolation: a vehicle's target timestamps are clipped to
-  [t_actual[0], t_actual[-1]].
-- include_heads / include_tails (both default False): opt-in flags to
-  additionally splice in a vehicle's true first/last timestamp even if
-  it falls off the shared grid. Useful when exact start/end coverage
-  matters more than strict grid homogeneity; leave off to guarantee a
-  perfectly homogeneous time grid across the whole output.
-- Short/edge-case trajectories whose [t0, t1] window contains no master
-  grid point (and include_heads/include_tails don't cover it) are never
-  silently dropped: a single point at t0 is forced in, with a logged
-  warning.
-- datetime is recomputed from time using the same ref_datetime / ref_time
-  convention used in the raw data loading step.
+Subsamples EKF-filtered bicycle/vehicle trajectories from 25 FPS to a target 
+FPS (default 10 FPS) using timestamp-aware interpolation: 
+    cubic spline for x/y position (linear fallback for trajectories under 4 frames), 
+    linear interpolation for scalar signals (speed, acceleration, angular velocity), 
+    and unwrap–interpolate–rewrap for angle. 
+All vehicles in a call share one master time grid built once from the full 
+dataset's time span, so output timestamps are homogeneous across vehicles 
+(and across dataframes, if the same grid anchor and target FPS are reused) 
+— no extrapolation beyond each vehicle's own observed span. 
+The optional include_heads/include_tails flags splice in a vehicle's true 
+first/last timestamp even if off-grid, and the off_grid column flags any 
+such point; edge-case trajectories that would otherwise produce zero output 
+points are never silently dropped.
 """
 
 # =============================================================================
 # IMPORTS
 # =============================================================================
-import logging
 import numpy as np
 import pandas as pd
 from scipy.interpolate import CubicSpline
 
-
-# =============================================================================
-# LOGGER
-# =============================================================================
-def _get_logger(debug: bool) -> logging.Logger:
-    logger = logging.getLogger(__name__)
-    level  = logging.DEBUG if debug else logging.WARNING
-    if not logger.handlers:
-        handler = logging.StreamHandler()
-        handler.setFormatter(logging.Formatter(
-            '[%(levelname)s] %(name)s — %(message)s'
-        ))
-        logger.addHandler(handler)
-    logger.setLevel(level)
-    return logger
-
+from tools_utils import _get_logger
 
 # =============================================================================
 # INTERNAL HELPERS

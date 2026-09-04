@@ -9,7 +9,7 @@ set DATE=2025-06-16
 
 set INTERSECTION=D1
 set CODE=A
-for %%S in (AM1 AM2 AM3 AM4 AM5 AM6 PM1 PM2 PM3 PM4 PM5 PM6) do (
+for %%S in (AM1 AM2 AM3 AM4 AM5 AM6 AM7 PM1 PM2 PM3 PM4 PM5 PM6) do (
     echo Running: %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %FLAG%
     python main_subsampling.py %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %%S %FLAG%
 )

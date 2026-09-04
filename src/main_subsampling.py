@@ -3,9 +3,18 @@ TITLE OF PAPAER
 -------------------------------------------
 Authors:        Shaimaa El-Baklish
 Organization:   ETH Zürich, Switzerland, IVT - Institute for Transportation Planning and Systems
-Development:    2025
+Development:    2025-2026
 Submitted to:   JOURNAL
 -------------------------------------------
+
+Command-line entry point: downsamples one EKF-filtered trajectory file
+(main_kf.py output) from its native 25 fps to a fixed 10 fps via
+`tools_subsampling.subsample_all`, using the paired bike/vehicle file's
+earliest timestamp as a common phase reference. Flags rows that fall
+inside an original occlusion gap ('in_gap'), converts to lon/lat, and
+writes a single flattened .csv per (date, mode, location, timeslot).
+
+Usage: python main_subsampling.py <date> <mode> <intersection> <code> <timeslot> <debug>
 """
 
 # #############################################################################
@@ -21,10 +30,9 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from pyproj import Transformer
-
 from _logger import Logger
 from _constants import BikeZ_Config 
+from tools_utils import _PROJ_2056_TO_LONLAT
 from tools_subsampling import subsample_all
 
 # #############################################################################
@@ -103,8 +111,7 @@ df_10fps = subsample_all(df, target_fps=10.0, log=log,
                          include_heads=True, include_tails=True)
 df_10fps['x_act_ekf'] = df_10fps['x_ekf'] + X_2056_offset
 df_10fps['y_act_ekf'] = df_10fps['y_ekf'] + Y_2056_offset
-transformer = Transformer.from_crs("EPSG:2056", "EPSG:4326", always_xy=True)
-df_10fps["lon_ekf"], df_10fps["lat_ekf"] = transformer.transform(
+df_10fps["lon_ekf"], df_10fps["lat_ekf"] = _PROJ_2056_TO_LONLAT.transform(
     df_10fps["x_act_ekf"].values, df_10fps["y_act_ekf"].values
 )
 
@@ -135,8 +142,10 @@ df_10fps = df_10fps[[
     'in_gap', 'off_grid'
 ]]
 
-output_path = BikeZ_Config.subsampled_data_root + f"location_{loc_num}/{loc_num}_{mode}s_{date}_{timeslot}.csv"
-df_10fps.to_csv(output_path, index=False)
+# output_path = BikeZ_Config.subsampled_data_root + f"location_{loc_num}/{loc_num}_{mode}s_{date}_{timeslot}.csv"
+# df_10fps.to_csv(output_path, index=False)
+output_path = BikeZ_Config.subsampled_data_root + f"location_{loc_num}/{loc_num}_{mode}s_{date}_{timeslot}.parquet"
+df_10fps.to_parquet(output_path, compression='zstd', index=False)
 
 
 # bike_id = np.random.choice(df['veh_id'].unique())

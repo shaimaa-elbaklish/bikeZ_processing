@@ -3,7 +3,7 @@ TITLE OF PAPAER
 -------------------------------------------
 Authors:        Shaimaa El-Baklish
 Organization:   ETH Zürich, Switzerland, IVT - Institute for Transportation Planning and Systems
-Development:    2025
+Development:    2025-2026
 Submitted to:   JOURNAL
 -------------------------------------------
 
@@ -34,13 +34,13 @@ import osmnx as ox
 import geopandas as gpd
 import matplotlib.pyplot as plt
 
-from pyproj import Transformer
 from shapely.geometry import box
 from shapely.geometry import Point
 from shapely.plotting import plot_points
 from shapely.plotting import plot_line
 
 from _constants import BikeZ_Config
+from tools_utils import _PROJ_2056_TO_LONLAT
 from tools_coordinate_transform import cut_line_at_stop
 from tools_coordinate_transform import densify_linestring
 from tools_site_builder import (
@@ -50,6 +50,7 @@ from tools_site_builder import (
     register_geometries,
     build_segment_registry,
     add_bike_lane_boundaries,
+    add_car_lane_boundaries,
     build_turns,
     build_intersection_polygon,
     build_movement_registry,
@@ -76,10 +77,11 @@ X_2056_offset = XY_2056_Bounds[0][0]
 Y_2056_offset = XY_2056_Bounds[1][0]
 
 # Site constants
-kml_path      = '../maps/from_swisstopo/June_D3.kml'
-kml_path_gis  = '../maps/from_swisstopo/June_D3_D4_GIS.kml'
-save_path     = f'../data/registry_{date}_{intersection}_{code}.pkl'
-max_chain_len = 3
+kml_path       = '../maps/from_swisstopo/June_D3.kml'
+kml_path_lanes = '../maps/from_swisstopo/June_D3_CarLanes.kml'
+kml_path_gis   = '../maps/from_swisstopo/June_D3_D4_GIS.kml'
+save_path      = f'../data/registry_{date}_{intersection}_{code}.pkl'
+max_chain_len  = 3
 
 
 # Share Link: https://s.geo.admin.ch/m7vfc4w337ds
@@ -88,6 +90,9 @@ max_chain_len = 3
 # GIS:
 # Share Link: https://geo.zh.ch/s/bf55b3ae-d28b-4558-a2dd-561a6fdbb716
 
+# Car Lanes
+# Share Link: https://s.geo.admin.ch/6kl7y4iylvk0
+# Edit Link: https://s.geo.admin.ch/nir126v5wgjp
 
 # #############################################################################
 # HELPER FUNCTIONS
@@ -134,8 +139,7 @@ def trim_overlap_end(line_trim, line_keep, buffer_dist):
 # =============================================================================
 # STEP 0: load external data sources
 print("Loading OSMnx features...")
-transformer = Transformer.from_crs('EPSG:2056', 'EPSG:4326', always_xy=True)
-lonlat      = transformer.transform(
+lonlat = _PROJ_2056_TO_LONLAT.transform(
     np.asarray(XY_2056_Bounds[0]) + np.asarray([-15, 15]),
     np.asarray(XY_2056_Bounds[1]) + np.asarray([-15, 15]),
 )
@@ -493,6 +497,10 @@ gdf_bike_boundaries = gdf_swisstopo[
 ].copy()
 add_bike_lane_boundaries(segment_registry, geometry_store, gdf_bike_boundaries)
 
+print("--- Step 2c: project car lane polygons and boundaries ---")
+gdf_car_lane_polygons = gpd.read_file(kml_path_lanes, driver='KML')
+add_car_lane_boundaries(segment_registry, geometry_store, gdf_car_lane_polygons)
+
 # =============================================================================
 # PHASE 3: build_turns
 
@@ -689,5 +697,5 @@ m = create_registry_map(
     geometry_store, segment_registry, movement_registry,
     gdf_swisstopo,
     base_map_src='gis-zh',
-    save_path=f'../maps/registry_{date}_{intersection}_{code}_gis.html',
+    save_path=f'../maps/registry_location{loc_num}.html',
 )

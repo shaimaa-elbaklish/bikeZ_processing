@@ -62,25 +62,7 @@ from scipy.ndimage import gaussian_filter1d
 from pyclothoids import SolveG2
 
 from _constants import SKIP_KALMAN_FILTERING_MAX_GAP
-
-# =============================================================================
-# LOGGER
-# =============================================================================
-def _get_logger(debug: bool) -> logging.Logger:
-    """
-    Return a logger configured to DEBUG level when debug=True,
-    WARNING otherwise. Call once at the start of each public function.
-    """
-    logger = logging.getLogger(__name__)
-    level = logging.DEBUG if debug else logging.WARNING
-    if not logger.handlers:
-        handler = logging.StreamHandler()
-        handler.setFormatter(logging.Formatter(
-            '[%(levelname)s] %(name)s — %(message)s'
-        ))
-        logger.addHandler(handler)
-    logger.setLevel(level)
-    return logger
+from tools_utils import _get_logger
 
 
 # =============================================================================
@@ -155,7 +137,11 @@ def _ekf_correct(x_pred: np.ndarray, P_pred: np.ndarray,
     P_corr : corrected covariance  (4, 4)
     """
     K      = P_pred @ C.T @ np.linalg.inv(C @ P_pred @ C.T + R)
-    x_corr = x_pred + K @ (y - C @ x_pred)
+    innov = y - C @ x_pred
+    if abs(innov[3]) > np.pi:
+        # branch inconsistency upstream — should never happen
+        innov[3] = (innov[3] + np.pi) % (2*np.pi) - np.pi
+    x_corr = x_pred + K @ innov
     P_corr = (np.eye(4) - K) @ P_pred 
     return x_corr, P_corr
 
@@ -672,7 +658,7 @@ def _gap_inference_objective(params: np.ndarray,
     # 1. Endpoint matching
     pos_err = float(np.linalg.norm(final[:2] - target_state[:2]))
     vel_err = float(abs(final[2] - target_state[2]))
-    ang_err = float(abs(_wrap_angle(final[3] - target_state[3])))
+    ang_err = float(abs(final[3] - target_state[3]))
 
     # 2. Arc-length matching: ∫v dt should equal S_total
     dt_arr     = np.diff(times)
@@ -899,7 +885,7 @@ def _fill_gap_pseudo_observations(feat_veh_df: pd.DataFrame,
 
         path = _eval_clothoid(pieces, lengths, s_vals)   # (gap_len, 4)
 
-        for j in range(gap_len):
+        for j in range(gap_len -1):
             idx = gap_start + j
             feat_veh_df.iloc[idx, col['x']]                 = path[j, 0]
             feat_veh_df.iloc[idx, col['y']]                 = path[j, 1]
@@ -1032,17 +1018,23 @@ def _precompute_gap_geometries(feat_veh_df: pd.DataFrame,
         # angle_estimation is unreliable near gaps even for observed rows.
         obs_before = (feat_veh_df[~feat_veh_df['missing'] &
                                    (feat_veh_df['time'] <= prev_obs_time)]
-                      .tail(5)[['x', 'y']].to_numpy())
+                      .tail(5)[['x', 'y', 'angle_estimation']].to_numpy())
         obs_after  = (feat_veh_df[~feat_veh_df['missing'] &
                                    (feat_veh_df['time'] >= next_avail_time)]
-                      .head(5)[['x', 'y']].to_numpy())
-
+                      .head(5)[['x', 'y', 'angle_estimation']].to_numpy())
+        
+        def _anchor(theta, ref):
+            """Put theta on the branch nearest ref."""
+            return ref + (theta - ref + np.pi) % (2*np.pi) - np.pi
+        
         if len(obs_before) >= 2:
-            dp               = obs_before[-1] - obs_before[-2]
-            start_state[3]   = float(np.arctan2(dp[1], dp[0]))
+            dp = obs_before[-1, :2] - obs_before[-2, :2]
+            start_state[3] = _anchor(float(np.arctan2(dp[1], dp[0])),
+                                     obs_before[-2, 2])
         if len(obs_after) >= 2:
-            dp               = obs_after[1] - obs_after[0]
-            target_state[3]  = float(np.arctan2(dp[1], dp[0]))
+            dp = obs_after[1, :2] - obs_after[0, :2]
+            target_state[3] = _anchor(float(np.arctan2(dp[1], dp[0])),
+                                      obs_after[1, 2])
 
         log.debug(
             f"  start : ({start_state[0]:.4f}, {start_state[1]:.4f}) "
@@ -1145,6 +1137,13 @@ def calculate_kalman_filtered_trajectory(veh_df: pd.DataFrame,
         'angle':       'angle_estimation',
         'angular_vel': 'angle_vel_estimation'
     })
+    # --- enter continuous-heading space ---------------------------------- #
+    _obs = ~feat_veh_df['missing'].to_numpy(dtype=bool)
+    _ang = feat_veh_df['angle_estimation'].to_numpy(dtype=float).copy()
+    if _obs.sum() > 1:
+        _ang[_obs] = np.unwrap(_ang[_obs])
+    _ang[~_obs] = np.nan          # force Phase 0 to supply these
+    feat_veh_df['angle_estimation'] = _ang
 
     C_t   = np.diag([1, 1, 1, 1]).astype(np.float64)
     times = feat_veh_df['time'].to_numpy()
@@ -1159,6 +1158,7 @@ def calculate_kalman_filtered_trajectory(veh_df: pd.DataFrame,
         w_min=-1.5, w_max=1.5,
         debug=debug, log=log
     )
+    raw_missing = feat_veh_df['missing'].to_numpy(dtype=bool).copy()
     feat_veh_df = _fill_gap_pseudo_observations(
         feat_veh_df, times, gap_registry
     )
@@ -1196,20 +1196,13 @@ def calculate_kalman_filtered_trajectory(veh_df: pd.DataFrame,
         )
 
         y_t        = feat_veh_df.loc[
-            feat_veh_df['time'] == times[i],
+            feat_veh_df['time'] == times[i+1],
             ['x', 'y', 'speed', 'angle_estimation']
         ].to_numpy().flatten()
         y_t[-2]   /= 3.6
         y_t[2]     = max(0.0, y_t[2])
-
-        # R_use = R_gap if _gap_mask_from_registry(gap_registry, i) else R_t
         
-        # states_kalman[:, i+1], states_cov_kalman[:, :, i+1] = _ekf_correct(
-        #     states_pred[:, i+1], states_cov_pred[:, :, i+1],
-        #     y_t, C_t, R_use
-        # )
-        
-        is_missing = feat_veh_df.loc[feat_veh_df['time'] == times[i], 'missing'].item()
+        is_missing = feat_veh_df.loc[feat_veh_df['time'] == times[i+1], 'missing'].item()
         if is_missing:
             # Short gap, no clothoid pseudo-observation: no trustworthy
             # measurement this step — predict-only, using a_use/omega=0
@@ -1217,7 +1210,7 @@ def calculate_kalman_filtered_trajectory(veh_df: pd.DataFrame,
             states_kalman[:, i+1]        = states_pred[:, i+1]
             states_cov_kalman[:, :, i+1] = states_cov_pred[:, :, i+1]
         else:
-            R_use = R_gap if _gap_mask_from_registry(gap_registry, i) else R_t
+            R_use = R_gap if _gap_mask_from_registry(gap_registry, i + 1) else R_t
             states_kalman[:, i+1], states_cov_kalman[:, :, i+1] = _ekf_correct(
                 states_pred[:, i+1], states_cov_pred[:, :, i+1], y_t, C_t, R_use
             )
@@ -1249,7 +1242,7 @@ def calculate_kalman_filtered_trajectory(veh_df: pd.DataFrame,
     # ------------------------------------------------------------------
     if debug:
         _plot_full_trajectory(
-            veh_id, feat_veh_df, times,
+            veh_id, feat_veh_df, times, raw_missing,
             gap_registry, states_kalman, states_rts
         )
         _plot_time_profiles(
@@ -1263,6 +1256,7 @@ def calculate_kalman_filtered_trajectory(veh_df: pd.DataFrame,
     filt_veh_df = pd.DataFrame(
         states_rts.T, columns=['x', 'y', 'speed', 'angle']
     )
+    filt_veh_df['angle'] = (filt_veh_df['angle'] + np.pi) % (2*np.pi) - np.pi
     filt_veh_df['speed']        = states_rts[2, :] * 3.6
     filt_veh_df['time']         = times
     filt_veh_df['cov_mat']      = [states_cov_rts[:, :, i] for i in range(N)]
@@ -1483,7 +1477,7 @@ def _plot_gap_dynamics(pieces, lengths, S_total,
     plt.show(block=False)
 
 
-def _plot_full_trajectory(veh_id, feat_veh_df, times,
+def _plot_full_trajectory(veh_id, feat_veh_df, times, raw_missing,
                            gap_registry, states_kalman, states_rts):
     """
     Plot full xy trajectory showing all processing stages:
@@ -1497,8 +1491,8 @@ def _plot_full_trajectory(veh_id, feat_veh_df, times,
         fontsize=9
     )
 
-    obs_mask  = ~feat_veh_df['missing'].to_numpy()
-    miss_mask =  feat_veh_df['missing'].to_numpy()
+    obs_mask  = ~raw_missing
+    miss_mask = raw_missing
     first_gap = list(gap_registry.keys())[0] if gap_registry else None
 
     ax.scatter(feat_veh_df.loc[obs_mask,  'x'],

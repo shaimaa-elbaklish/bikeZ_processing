@@ -3,9 +3,15 @@ TITLE OF PAPAER
 -------------------------------------------
 Authors:        Shaimaa El-Baklish
 Organization:   ETH Zürich, Switzerland, IVT - Institute for Transportation Planning and Systems
-Development:    2025
+Development:    2025-2026
 Submitted to:   JOURNAL
 -------------------------------------------
+
+Session-scoped logger for BikeZ pipeline scripts. Writes full-detail logs
+to a per-(date, intersection, code, timeslot, session) file under
+`log_dir`, while printing a reduced level to the console through a
+tqdm-safe, ASCII-sanitized handler so progress bars aren't corrupted by
+interleaved log lines or unicode symbols (ω, θ, Δ, etc.).
 """
 
 # #############################################################################
@@ -47,6 +53,11 @@ def to_ascii_safe(text: str) -> str:
 # TQDM-safe console handler
 # ---------------------------
 class TqdmConsoleHandler(logging.StreamHandler):
+    """
+    StreamHandler that routes output through `tqdm.write` instead of
+    `stdout`, so log messages don't break active tqdm progress bars.
+    Also ASCII-sanitizes each message via `to_ascii_safe`.
+    """
     def emit(self, record):
         try:
             msg = self.format(record)
@@ -59,6 +70,13 @@ class TqdmConsoleHandler(logging.StreamHandler):
 # Main Logger
 # ---------------------------
 class Logger:
+    """
+    Thin wrapper around a standard `logging.Logger` with two handlers:
+    a full-detail file handler (`file_level`, default DEBUG) and an
+    optional console handler (`console_level`, default WARNING) that is
+    tqdm-safe and ASCII-sanitized. One `Logger` instance = one log file,
+    named from the (date, intersection, code, timeslot, session) tuple.
+    """
     def __init__(self, date, intersection, code, timeslot, session, log_dir="../logs", 
                  console_level=logging.WARNING, file_level=logging.DEBUG):
         """

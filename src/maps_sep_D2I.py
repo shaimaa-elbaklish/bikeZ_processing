@@ -3,7 +3,7 @@ TITLE OF PAPAER
 -------------------------------------------
 Authors:        Shaimaa El-Baklish
 Organization:   ETH Zürich, Switzerland, IVT - Institute for Transportation Planning and Systems
-Development:    2025
+Development:    2025-2026
 Submitted to:   JOURNAL
 -------------------------------------------
 
@@ -12,7 +12,7 @@ maps_sep_D2I.py
 Site definition — Baslerstrasse / Flurstrasse
 Zürich, Switzerland — September 2025 campaign (D2, I location)
  
-Two intersections:
+One intersection:
   MainInt  — 4-way: Baslerstrasse × Flurstrasse
  
 This file owns ALL geometry sourcing and calls the four builder phases.
@@ -34,13 +34,13 @@ import osmnx as ox
 import geopandas as gpd
 import matplotlib.pyplot as plt
 
-from pyproj import Transformer
 from shapely.geometry import box
 from shapely.geometry import Point
 from shapely.plotting import plot_points
 from shapely.plotting import plot_line
 
 from _constants import BikeZ_Config
+from tools_utils import _PROJ_2056_TO_LONLAT
 from tools_coordinate_transform import cut_line_at_stop
 from tools_coordinate_transform import densify_linestring
 from tools_site_builder import (
@@ -98,8 +98,7 @@ max_chain_len  = 3
 # =============================================================================
 # STEP 0: load external data sources
 print("Loading OSMnx features...")
-transformer = Transformer.from_crs('EPSG:2056', 'EPSG:4326', always_xy=True)
-lonlat      = transformer.transform(
+lonlat = _PROJ_2056_TO_LONLAT.transform(
     np.asarray(XY_2056_Bounds[0]) + np.asarray([-50, 50]),
     np.asarray(XY_2056_Bounds[1]) + np.asarray([-50, 50]),
 )

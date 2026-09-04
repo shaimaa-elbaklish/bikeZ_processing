@@ -49,28 +49,13 @@ Authors : ETH Zürich IVT
 # =============================================================================
 # IMPORTS
 # =============================================================================
-import logging
 import numpy as np
 import pandas as pd
 
 from scipy.interpolate import splev
 from shapely.geometry import Point
 
-from _logger import Logger
-
-
-# =============================================================================
-# LOGGER
-# =============================================================================
-def _get_logger(debug: bool) -> logging.Logger:
-    logger = logging.getLogger(__name__)
-    level  = logging.DEBUG if debug else logging.WARNING
-    if not logger.handlers:
-        h = logging.StreamHandler()
-        h.setFormatter(logging.Formatter('[%(levelname)s] %(name)s — %(message)s'))
-        logger.addHandler(h)
-    logger.setLevel(level)
-    return logger
+from tools_utils import _get_logger, w_bike_at
 
 
 # =============================================================================
@@ -1137,7 +1122,7 @@ def transform_segment(bike_df, seg_key, df_indices, is_reverse,
 
     if bike_lane is not None and 'd_boundary_spline' in bike_lane:
         d_bnd_spl        = bike_lane['d_boundary_spline']
-        w_bike           = bike_lane['w_bike']
+        # w_bike           = bike_lane['w_bike']
         side             = bike_lane['side']
         s_bl_min, s_bl_max = bike_lane['s_domain']
 
@@ -1151,7 +1136,7 @@ def transform_segment(bike_df, seg_key, df_indices, is_reverse,
                 d_i_native = -d_i_native
 
             d_bnd = float(d_bnd_spl(s_i))
-            d_far = d_bnd + side * w_bike
+            d_far = d_bnd + side * w_bike_at(bike_lane, s_i)
             d_lo  = min(d_bnd, d_far) - BIKE_LANE_TOLERANCE
             d_hi  = max(d_bnd, d_far) + BIKE_LANE_TOLERANCE
 

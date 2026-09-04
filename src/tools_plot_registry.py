@@ -29,13 +29,14 @@ Authors : ETH Zürich IVT
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
+
 from matplotlib.lines import Line2D
 from collections import defaultdict
-
-from pyproj import Transformer
 from scipy.interpolate import splev
 
+from tools_utils import _PROJ_LONLAT_TO_2056
 from tools_utils import _is_axis_entry, _spline_xy, _build_color_map
+from tools_utils import _is_ring_entry, _polygon_patch, _ring_gates
 
 # =============================================================================
 # HELPERS
@@ -46,6 +47,97 @@ def _kml_to_local(geometry, transformer, x_offset, y_offset):
     ys = [c[1] for c in geometry.coords]
     xs_m, ys_m = transformer.transform(xs, ys)
     return np.array(xs_m) - x_offset, np.array(ys_m) - y_offset
+ 
+
+def _draw_ring(ax, geom_key, geo, col, show_kerbs=True, show_gates=True,
+               label_gates=True, first=True):
+    """
+    Draw a circulating carriageway: centerline, kerbs, gates, seam, sense.
+ 
+    Shared by plot_geometry_store and plot_segment_registry so the ring
+    looks the same in both. Draws only the geometry — the validity polygon
+    is the segment registry's business and is handled by the caller.
+ 
+    Gates are drawn as radial ticks spanning the annulus rather than as
+    points on the centerline, because a gate is an iso-s CROSS-SECTION: a
+    trajectory crosses it anywhere across the carriageway, not just at the
+    centerline.
+    """
+    cx, cy = geo['center']
+    R      = geo['radius']
+    L      = geo['total_length']
+    tck, unew, cum = geo['spline']
+ 
+    # --- centerline -----------------------------------------------------
+    x, y = splev(np.linspace(0.0, 1.0, 400), tck)
+    ax.plot(x, y, color=col, linewidth=3, zorder=4, solid_capstyle='round',
+            label=f'{geom_key} (CCW↑)')
+ 
+    # --- kerbs ----------------------------------------------------------
+    if show_kerbs:
+        th = np.linspace(0.0, 2.0 * np.pi, 300)
+        for r_k in (geo.get('r_inner'), geo.get('r_outer')):
+            if r_k is None:
+                continue
+            ax.plot(cx + r_k * np.cos(th), cy + r_k * np.sin(th),
+                    color=col, linewidth=0.9, linestyle=':', alpha=0.7,
+                    zorder=3, label='_nolegend_')
+ 
+    # --- circulation sense: three arrowheads along the centerline --------
+    for frac in (0.15, 0.48, 0.81):
+        t0, t1 = frac, frac + 0.025
+        x0, y0 = splev(t0, tck)
+        x1, y1 = splev(t1, tck)
+        ax.annotate('', xy=(float(x1), float(y1)),
+                    xytext=(float(x0), float(y0)),
+                    arrowprops=dict(arrowstyle='-|>', color=col, lw=2.5,
+                                    mutation_scale=22),
+                    zorder=6)
+ 
+    # --- s = 0 seam ------------------------------------------------------
+    r_in = geo.get('r_inner', R - 3.0)
+    r_out = geo.get('r_outer', R + 3.0)
+    x0, y0 = splev(0.0, tck)
+    u = np.array([float(x0) - cx, float(y0) - cy])
+    u /= (np.hypot(*u) or 1.0)
+    ax.plot([cx + r_in * u[0], cx + r_out * u[0]],
+            [cy + r_in * u[1], cy + r_out * u[1]],
+            color='black', linewidth=2.0, zorder=7,
+            label='ring s=0 seam' if first else '_nolegend_')
+ 
+    # --- gates -----------------------------------------------------------
+    if not show_gates:
+        return
+ 
+    gates = sorted(((k, v) for k, v in geo.items()
+                    if k.startswith('s_entry_') or k.startswith('s_exit_')),
+                   key=lambda kv: kv[1])
+    first_entry = first_exit = True
+    for k, s in gates:
+        is_entry = k.startswith('s_entry_')
+        gcol = 'seagreen' if is_entry else 'crimson'
+        th = s / R + np.radians(geo.get('theta0_deg', 0.0))
+        ux, uy = np.cos(th), np.sin(th)
+        ax.plot([cx + r_in * ux, cx + r_out * ux],
+                [cy + r_in * uy, cy + r_out * uy],
+                color=gcol, linewidth=2.0, alpha=0.9, zorder=7,
+                label=('ring entry gate' if is_entry and first_entry else
+                       'ring exit gate' if not is_entry and first_exit else
+                       '_nolegend_'))
+        if is_entry:
+            first_entry = False
+        else:
+            first_exit = False
+ 
+        if label_gates:
+            rl = r_out + 1.5
+            ax.annotate(f"{k.replace('s_entry_', '→').replace('s_exit_', '←')}"
+                        f"\n{s:.1f}m",
+                        (cx + rl * ux, cy + rl * uy),
+                        fontsize=5.5, color=gcol, ha='center', va='center',
+                        zorder=8,
+                        bbox=dict(boxstyle='round,pad=0.15', facecolor='white',
+                                  alpha=0.75, edgecolor=gcol, linewidth=0.5))
 
 
 # =============================================================================
@@ -76,7 +168,6 @@ def plot_geometry_store(geometry_store, gdf_swisstopo=None,
     offset_m       : float — lateral separation between forward/reverse [m]
     save_path      : str | None — if given, saves figure and closes
     """
-    transformer = Transformer.from_crs("EPSG:4326", "EPSG:2056", always_xy=True)
     x_offset    = geometry_store['x_offset']
     y_offset    = geometry_store['y_offset']
     color_map   = _build_color_map(geometry_store)
@@ -85,7 +176,7 @@ def plot_geometry_store(geometry_store, gdf_swisstopo=None,
     ax.set_title(
         'Geometry store — Phase 1\n'
         'Solid = forward (positive_dir)  |  Dashed = reverse direction\n'
-        '▼ = s_change  ▽ = extra s_change_*',
+        '▼ = s_change  ▽ = extra s_change_* | = ring gate (green in / red out)',
         fontsize=10
     )
 
@@ -94,7 +185,7 @@ def plot_geometry_store(geometry_store, gdf_swisstopo=None,
         for _, row in gdf_swisstopo.iterrows():
             if row['Description'] == 'Intersection_Area':
                 xs_loc, ys_loc = _kml_to_local(
-                    row.geometry.exterior, transformer, x_offset, y_offset
+                    row.geometry.exterior, _PROJ_LONLAT_TO_2056, x_offset, y_offset
                 )
                 ax.fill(xs_loc, ys_loc, alpha=0.10, color='yellow', zorder=1)
                 ax.plot(xs_loc, ys_loc, color='gold', linewidth=1.5,
@@ -104,6 +195,11 @@ def plot_geometry_store(geometry_store, gdf_swisstopo=None,
     first_axis = True
     for geom_key, geo in geometry_store.items():
         if not _is_axis_entry(geom_key, geo):
+            continue
+        if _is_ring_entry(geo):
+            _draw_ring(ax, geom_key, geo, color_map[geom_key],
+                       first=first_axis)
+            first_axis = False
             continue
         if geo.get('s_stop') is None:
             continue   # skip turn entries
@@ -177,7 +273,7 @@ def plot_geometry_store(geometry_store, gdf_swisstopo=None,
             if not row['Description'].endswith('_Stop'):
                 continue
             xs_loc, ys_loc = _kml_to_local(
-                row.geometry, transformer, x_offset, y_offset
+                row.geometry, _PROJ_LONLAT_TO_2056, x_offset, y_offset
             )
             ax.plot(xs_loc, ys_loc, color='red', linewidth=2.5,
                     zorder=6, solid_capstyle='round',
@@ -195,7 +291,7 @@ def plot_geometry_store(geometry_store, gdf_swisstopo=None,
             if not row['Description'].endswith('_Yield'):
                 continue
             xs_loc, ys_loc = _kml_to_local(
-                row.geometry, transformer, x_offset, y_offset
+                row.geometry, _PROJ_LONLAT_TO_2056, x_offset, y_offset
             )
             ax.plot(xs_loc, ys_loc, color='darkorange', linewidth=2.5,
                     linestyle='--', zorder=6, solid_capstyle='round',
@@ -217,7 +313,7 @@ def plot_geometry_store(geometry_store, gdf_swisstopo=None,
             if desc.endswith('_Stop') or desc.endswith('_Yield'):
                 continue
             xs_loc, ys_loc = _kml_to_local(
-                row.geometry, transformer, x_offset, y_offset
+                row.geometry, _PROJ_LONLAT_TO_2056, x_offset, y_offset
             )
             ax.plot(xs_loc, ys_loc, color='cyan', linewidth=2,
                     zorder=5, solid_capstyle='round',
@@ -275,7 +371,6 @@ def plot_segment_registry(geometry_store, segment_registry, gdf_swisstopo=None,
     show_validity_polygons  : bool — draw validity polygon fills
     save_path               : str | None
     """
-    transformer = Transformer.from_crs("EPSG:4326", "EPSG:2056", always_xy=True)
     x_offset    = geometry_store['x_offset']
     y_offset    = geometry_store['y_offset']
     color_map   = _build_color_map(geometry_store)
@@ -293,7 +388,7 @@ def plot_segment_registry(geometry_store, segment_registry, gdf_swisstopo=None,
         for _, row in gdf_swisstopo.iterrows():
             if row['Description'] == 'Intersection_Area':
                 xs_loc, ys_loc = _kml_to_local(
-                    row.geometry.exterior, transformer, x_offset, y_offset
+                    row.geometry.exterior, _PROJ_LONLAT_TO_2056, x_offset, y_offset
                 )
                 ax.fill(xs_loc, ys_loc, alpha=0.08, color='yellow', zorder=1)
                 ax.plot(xs_loc, ys_loc, color='gold', linewidth=1.5,
@@ -360,15 +455,28 @@ def plot_segment_registry(geometry_store, segment_registry, gdf_swisstopo=None,
         if show_validity_polygons:
             poly = entry.get('validity_polygon')
             if poly is not None and not poly.is_empty:
-                try:
-                    px, py = poly.exterior.xy
-                    ax.fill(px, py, alpha=0.10, color=col, zorder=3)
-                    ax.plot(px, py, color=col, linewidth=0.8,
-                            linestyle=':', zorder=3, alpha=0.5)
-                except Exception:
-                    pass   # MultiPolygon edge case — skip
+                ax.add_patch(_polygon_patch(
+                poly, facecolor=col, alpha=0.10, zorder=3,
+                edgecolor=col, linewidth=0.8, linestyle=':'))
 
         plotted_geom_keys.add(seg_key)
+    
+    # ── Ring segments ─────────────────────────────────────────────────────────
+    for seg_key, entry in segment_registry.items():
+        if entry.get('type') != 'ring':
+            continue
+        geom_key = entry['geometry_key']
+        geo      = geometry_store[geom_key]
+        col      = color_map.get(geom_key, 'dimgray')
+
+        _draw_ring(ax, seg_key, geo, col, first=True)
+
+        if show_validity_polygons:
+            poly = entry.get('validity_polygon')
+            if poly is not None and not poly.is_empty:
+                ax.add_patch(_polygon_patch(
+                    poly, facecolor=col, alpha=0.10, zorder=3,
+                    edgecolor=col, linewidth=0.8, linestyle=':'))
 
     # ── Turn segments ─────────────────────────────────────────────────────────
     turn_entries = {k: v for k, v in segment_registry.items()
@@ -416,13 +524,9 @@ def plot_segment_registry(geometry_store, segment_registry, gdf_swisstopo=None,
         if show_validity_polygons:
             poly = te.get('validity_polygon')
             if poly is not None and not poly.is_empty:
-                try:
-                    px, py = poly.exterior.xy
-                    ax.fill(px, py, alpha=0.06, color=col_t, zorder=2)
-                    ax.plot(px, py, color=col_t, linewidth=0.6,
-                            linestyle=':', zorder=2, alpha=0.4)
-                except Exception:
-                    pass
+                ax.add_patch(_polygon_patch(
+                poly, facecolor=col, alpha=0.10, zorder=3,
+                edgecolor=col, linewidth=0.8, linestyle=':'))
 
     # ── Stop / yield / bike lane overlays ─────────────────────────────────────
     if gdf_swisstopo is not None:
@@ -436,7 +540,7 @@ def plot_segment_registry(geometry_store, segment_registry, gdf_swisstopo=None,
     
             if desc.endswith('_Stop'):
                 xs_loc, ys_loc = _kml_to_local(
-                    row.geometry, transformer, x_offset, y_offset
+                    row.geometry, _PROJ_LONLAT_TO_2056, x_offset, y_offset
                 )
                 ax.plot(xs_loc, ys_loc, color='red', linewidth=2,
                         zorder=7, solid_capstyle='round',
@@ -449,7 +553,7 @@ def plot_segment_registry(geometry_store, segment_registry, gdf_swisstopo=None,
     
             elif desc.endswith('_Yield'):
                 xs_loc, ys_loc = _kml_to_local(
-                    row.geometry, transformer, x_offset, y_offset
+                    row.geometry, _PROJ_LONLAT_TO_2056, x_offset, y_offset
                 )
                 ax.plot(xs_loc, ys_loc, color='darkorange', linewidth=2,
                         linestyle='--', zorder=7, solid_capstyle='round',
@@ -462,7 +566,7 @@ def plot_segment_registry(geometry_store, segment_registry, gdf_swisstopo=None,
     
             elif any(desc.endswith(s) for s in DIRECTION_SUFFIXES):
                 xs_loc, ys_loc = _kml_to_local(
-                    row.geometry, transformer, x_offset, y_offset
+                    row.geometry, _PROJ_LONLAT_TO_2056, x_offset, y_offset
                 )
                 ax.plot(xs_loc, ys_loc, color='cyan', linewidth=1.8,
                         zorder=5, solid_capstyle='round',
@@ -529,15 +633,9 @@ def plot_segment_registry(geometry_store, segment_registry, gdf_swisstopo=None,
 # =============================================================================
 import matplotlib as mpl
 import matplotlib.cm as cm
-import matplotlib.colors as mcolors
 import plotly.graph_objects as go
 
-
-def _to_rgba_str(color, alpha=1.0):
-    """Convert any matplotlib-compatible color (name, hex, or RGBA tuple)
-    into a Plotly-compatible 'rgba(r,g,b,a)' string."""
-    r, g, b, a = mcolors.to_rgba(color, alpha=alpha)
-    return f'rgba({int(r * 255)},{int(g * 255)},{int(b * 255)},{a:.3f})'
+from tools_utils import _to_rgba_str
  
  
 def plot_segment_registry_plotly(geometry_store, segment_registry,
@@ -569,7 +667,6 @@ def plot_segment_registry_plotly(geometry_store, segment_registry,
     -------
     fig : plotly.graph_objects.Figure
     """
-    transformer = Transformer.from_crs("EPSG:4326", "EPSG:2056", always_xy=True)
     x_offset    = geometry_store['x_offset']
     y_offset    = geometry_store['y_offset']
     color_map   = _build_color_map(geometry_store)
@@ -663,7 +760,56 @@ def plot_segment_registry_plotly(geometry_store, segment_registry,
                     ))
                 except Exception:
                     pass  # MultiPolygon edge case — skip
- 
+    
+    # ── Ring segments ────────────────────────────────────────────────────
+    for seg_key, entry in segment_registry.items():
+        if entry.get('type') != 'ring':
+            continue
+    
+        geo = geometry_store[entry['geometry_key']]
+        col = color_map.get(entry['geometry_key'], 'dimgray')
+        cx, cy = geo['center']
+        tck, unew, cum = geo['spline']
+        lg = f'seg_{seg_key}'
+    
+        xr, yr = splev(np.linspace(0.0, 1.0, 400), tck)
+        fig.add_trace(go.Scatter(
+            x=list(xr), y=list(yr), mode='lines',
+            line=dict(color=_to_rgba_str(col), width=3),
+            name=f'{seg_key} (CCW)', legendgroup=lg,
+            hovertemplate=f'{seg_key}<extra></extra>',
+        ))
+    
+        # Gates as radial ticks across the carriageway — a gate is an
+        # iso-s CROSS-SECTION, not a point on the centerline.
+        for k, s, is_entry, th in _ring_gates(geo):
+            gcol = 'seagreen' if is_entry else 'crimson'
+            fig.add_trace(go.Scatter(
+                x=[cx + geo['r_inner'] * np.cos(th),
+                   cx + geo['r_outer'] * np.cos(th)],
+                y=[cy + geo['r_inner'] * np.sin(th),
+                   cy + geo['r_outer'] * np.sin(th)],
+                mode='lines', line=dict(color=gcol, width=2),
+                legendgroup=lg, showlegend=False,
+                hovertext=f'{k} = {s:.2f} m', hoverinfo='text',
+            ))
+    
+        # Annulus outline. Plotly has no true hole support for
+        # fill='toself' — None-separated subpaths become separate filled
+        # regions, not holes — so draw the rings unfilled rather than
+        # filling the central island.
+        if show_validity_polygons:
+            poly = entry.get('validity_polygon')
+            if poly is not None and not poly.is_empty:
+                for ring_geom in [poly.exterior, *poly.interiors]:
+                    px, py = ring_geom.xy
+                    fig.add_trace(go.Scatter(
+                        x=list(px), y=list(py), mode='lines',
+                        line=dict(color=_to_rgba_str(col), width=0.8,
+                                  dash='dot'),
+                        legendgroup=lg, showlegend=False, hoverinfo='skip',
+                    ))
+
     # ── Turn segments ────────────────────────────────────────────────────
     turn_entries = {k: v for k, v in segment_registry.items()
                     if v['type'] == 'turn'}
@@ -730,7 +876,15 @@ def plot_segment_registry_plotly(geometry_store, segment_registry,
         if show_validity_polygons:
             poly = te.get('validity_polygon')
             if poly is not None and not poly.is_empty:
-                try:
+                if poly.interiors:
+                    for ring_geom in [poly.exterior, *poly.interiors]:
+                        px, py = ring_geom.xy
+                        fig.add_trace(go.Scatter(
+                            x=list(px), y=list(py), mode='lines',
+                            line=dict(color=_to_rgba_str(col_t), width=0.8, dash='dot'),
+                            legendgroup=legend_group, showlegend=False,
+                            hoverinfo='skip'))
+                else:
                     px, py = poly.exterior.xy
                     fig.add_trace(go.Scatter(
                         x=list(px), y=list(py), mode='lines',
@@ -742,8 +896,6 @@ def plot_segment_registry_plotly(geometry_store, segment_registry,
                         showlegend=False,
                         hoverinfo='skip',
                     ))
-                except Exception:
-                    pass
     
     # Add bike lanes
     from tools_utils import add_bike_lane_boundaries_plotly

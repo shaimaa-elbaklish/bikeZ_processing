@@ -3,9 +3,18 @@ TITLE OF PAPAER
 -------------------------------------------
 Authors:        Shaimaa El-Baklish
 Organization:   ETH Zürich, Switzerland, IVT - Institute for Transportation Planning and Systems
-Development:    2025
+Development:    2025-2026
 Submitted to:   JOURNAL
 -------------------------------------------
+
+Command-line entry point: converts EKF-filtered xy trajectories
+(main_kf.py output) into lane coordinates (s, d) using the geometry/
+segment/movement registries built by `tools_site_builder.py`, applying
+forced-chain overrides from "../data/forced_transforms.csv" where present.
+Writes the result to .parquet (or, for subsampled input, .csv), and
+optionally renders a per-vehicle debug PDF of the lane-coordinate fit.
+
+Usage: python main_coordinate_transform.py <date> <mode> <intersection> <code> <timeslot> <is_subsampled> <debug_plotting>
 """
 
 # #############################################################################
@@ -71,8 +80,10 @@ log = Logger(date, intersection, code, timeslot, f"CT_{mode}")
 # #############################################################################
 # trajectories after EKF
 if SUBSAMPLED:
-    filename = f"location_{loc_num}/{loc_num}_{mode}s_{date}_{timeslot}.csv"
-    df = pd.read_csv(subsampled_data_root + filename)
+    # filename = f"location_{loc_num}/{loc_num}_{mode}s_{date}_{timeslot}.csv"
+    # df = pd.read_csv(subsampled_data_root + filename)
+    filename = f"location_{loc_num}/{loc_num}_{mode}s_{date}_{timeslot}.parquet"
+    df = pd.read_parquet(subsampled_data_root + filename)
 else:
     if mode == "bike":
         filename = f"trajectories_bikes_{date}_{intersection}_{timeslot}_{code}-1-ekf"
@@ -107,36 +118,25 @@ forced_transforms_df['forced_chain_list'] = forced_transforms_df['forced_chain']
 # #############################################################################
 # MAIN: Perform Coordinate Transform for ALL Bicycles
 # #############################################################################
-from tools_lane_coords_V4 import to_lane_coordinates, setup_registry
-from tools_lane_coords_V4 import to_lane_coordinates_forced
-from tools_lane_coords_V4 import add_car_lane_membership
+from tools_lane_coords_V5 import setup_site, to_lane_coordinates
+from tools_lane_coords_V5 import add_car_lane_membership
 
+allow_reverse_turns = (loc_num == 7) or (loc_num == 6 and mode == "bike")
+site = setup_site(geometry_store, segment_registry, movement_registry, mode=mode,
+                  allow_reverse_turns=allow_reverse_turns)
 
-setup_registry(geometry_store, segment_registry)
 
 mod_df = None
 unique_ids = df['veh_id'].unique()
 for bike_id in tqdm(unique_ids, desc=f"Processing Coordinate Transform on {mode}s"):
     bike_df = df[df["veh_id"] == bike_id].copy()
     
-    if bike_id in forced_transforms_ids:
-        chain = forced_transforms_df.loc[forced_transforms_df['veh_id'] == bike_id, 'forced_chain_list'].item()
-        bike_df = to_lane_coordinates_forced(
-            bike_df,
-            forced_chain=chain,
-            segment_registry=segment_registry,
-            geometry_store=geometry_store,
-            movement_registry=movement_registry,
-            verbose=DEBUG_PLOT, log=log
-        )
-    else:
-        bike_df = to_lane_coordinates(
-            bike_df, movement_registry,
-            segment_registry, geometry_store,
-            max_chain_length=max_chain_length,
-            agent_mode=mode,
-            verbose=DEBUG_PLOT, log=log
-        )
+    bike_df = to_lane_coordinates(
+        bike_df, movement_registry,
+        segment_registry, geometry_store,
+        agent_mode=mode, site=site,
+        verbose=True, log=log
+    )
 
     if mod_df is None:
         mod_df = bike_df.copy()

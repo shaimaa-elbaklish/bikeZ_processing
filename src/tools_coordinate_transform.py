@@ -1,11 +1,19 @@
 """
-TITLE
+TITLE OF PAPAER
 -------------------------------------------
-Authors:        Shaimaa K. El-Baklish
+Authors:        Shaimaa El-Baklish
 Organization:   ETH Zürich, Switzerland, IVT - Institute for Transportation Planning and Systems
-Development:    2025
+Development:    2025-2026
 Submitted to:   JOURNAL
 -------------------------------------------
+
+Converts between XY:2056 Cartesian coordinates and 1-D roadway (s, d)
+coordinates along a fitted centerline spline (s = arc length, d = signed
+lateral offset), and provides the supporting geometry operations used by
+`tools_site_builder.py`: fitting/projecting onto centerline B-splines,
+splitting a line at a stop/yield line, smoothly connecting two centerline
+fragments with a G2 clothoid (Hermite fallback for near-straight cases),
+and projecting a lane boundary onto a centerline to get a d(s) profile.
 """
 
 ###############################################################################
@@ -19,7 +27,6 @@ import pandas as pd
 import geopandas as gpd
 import matplotlib.pyplot as plt
 
-from pyproj import Transformer
 from pyclothoids import Clothoid, SolveG2
 from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import transform, split, snap
@@ -27,18 +34,17 @@ from scipy.interpolate import splprep, splev, interp1d
 from scipy.optimize import minimize_scalar
 from numpy.lib.stride_tricks import as_strided
 
+from tools_utils import _PROJ_LONLAT_TO_2056
+
 ###############################################################################
 # FUNCTIONS
 ###############################################################################
 def _to_local_xy_polygon(polygon_wgs84, x_offset, y_offset):
     """Transform a WGS84 Polygon to the local EPSG:2056-offset frame
     used by geometry_store splines."""
-    transformer_to_2056 = Transformer.from_crs(
-        "EPSG:4326", "EPSG:2056", always_xy=True
-    )
     coords_local = [
         (x - x_offset, y - y_offset)
-        for x, y in (transformer_to_2056.transform(c[0], c[1])
+        for x, y in (_PROJ_LONLAT_TO_2056.transform(c[0], c[1])
                      for c in polygon_wgs84.exterior.coords)
     ]
     poly = Polygon(coords_local)
@@ -49,7 +55,7 @@ def _to_local_xy_polygon(polygon_wgs84, x_offset, y_offset):
 
 def fit_roadway_centerline_spline(centerline_coords: list, smoothing: float = 0, 
                                   coordsys: str = 'latlon', x_offset: float = 0,
-                                  y_offset: float = 0):
+                                  y_offset: float = 0, periodic: bool = False):
     """
     Fits a B-spline for the roadway centerline in XY:2056 coordinate system.
 
@@ -65,6 +71,10 @@ def fit_roadway_centerline_spline(centerline_coords: list, smoothing: float = 0,
         float to improve numerical stability, offset XY:2056 in x direction
     y_offset: float, optional
         float to improve numerical stability, offset XY:2056 in y direction
+    periodic: bool, optional
+        Fit a CLOSED curve, C2-continuous across the join. The default is
+        False, which is the open-curve behaviour every existing caller
+        relies on. Used for roundabout rings.
 
     Returns
     -------
@@ -79,8 +89,7 @@ def fit_roadway_centerline_spline(centerline_coords: list, smoothing: float = 0,
         # Convert list of (lat, lon) into LineString(lon, lat)
         merged_centerline = LineString([(lon, lat) for lat, lon in centerline_coords])
         
-        transformer = Transformer.from_crs("EPSG:4326", "EPSG:2056", always_xy=True)
-        project = lambda x, y, z=None: transformer.transform(x, y)
+        project = lambda x, y, z=None: _PROJ_LONLAT_TO_2056.transform(x, y)
     
         xy2056_centerline = transform(project, merged_centerline)
         xy2056_centerline_coords = list(xy2056_centerline.coords)
@@ -92,7 +101,12 @@ def fit_roadway_centerline_spline(centerline_coords: list, smoothing: float = 0,
     x, y = zip(*xy2056_centerline_coords)
     x = np.asarray(x) - x_offset
     y = np.asarray(y) - y_offset
-    tck, u = splprep([x, y], s=smoothing)
+    
+    if periodic and not (np.isclose(x[0], x[-1]) and np.isclose(y[0], y[-1])):
+        x = np.append(x, x[0])
+        y = np.append(y, y[0])
+    
+    tck, u = splprep([x, y], s=smoothing, per=1 if periodic else 0)
     unew = np.linspace(0, 1, num=500)
     spline_points = np.array(splev(unew, tck)).T  # shape (N, 2)
 
@@ -105,6 +119,20 @@ def fit_roadway_centerline_spline(centerline_coords: list, smoothing: float = 0,
 
 
 def project_point_onto_spline(point, tck):
+    """
+    Find the closest point on a B-spline to a given point, by minimizing
+    squared distance over the spline parameter t in [0, 1].
+
+    Parameters
+    ----------
+    point : array-like, shape (2,) — query point (x, y)
+    tck   : B-spline representation (from `fit_roadway_centerline_spline`)
+
+    Returns
+    -------
+    t_star        : float — spline parameter of the closest point
+    closest_point : ndarray, shape (2,) — (x, y) of the closest point
+    """
     distance_to_spline = lambda t, point, tck: np.sum((point - np.array(splev(t, tck))) ** 2)
     res = minimize_scalar(distance_to_spline, bounds=(0, 1), args=(point, tck), method='bounded')
     t_star = res.x
@@ -114,6 +142,26 @@ def project_point_onto_spline(point, tck):
 
 def convert_xy2056_to_roadway_coordinates(point, tck, unew, cum_dist, 
                                           x_offset: float = 0, y_offset: float = 0):
+    """
+    Convert an XY:2056 point to roadway (s, d) coordinates relative to a
+    centerline spline: s is arc length to the closest point on the
+    spline, d is the signed lateral offset (perpendicular distance,
+    positive/negative by side per the local normal direction).
+
+    Parameters
+    ----------
+    point   : array-like, shape (2,), point in XY:2056
+    tck, unew, cum_dist : centerline B-spline representation
+    x_offset, y_offset : offsets applied when the spline was fit;
+              subtracted from `point` before projecting
+
+    Returns
+    -------
+    t_star  : float, spline parameter of the closest centerline point
+    tangent : ndarray, shape (2,),  unit tangent at t_star
+    normal  : ndarray, shape (2,), unit normal at t_star (defines d's sign)
+    s, d    : float, roadway coordinates [m]
+    """
     point = point - np.asarray([x_offset, y_offset])
     t_star, closest_point = project_point_onto_spline(point, tck)
     
@@ -136,6 +184,20 @@ def convert_xy2056_to_roadway_coordinates(point, tck, unew, cum_dist,
 
 def convert_roadway_to_xy2056_coordinates(s, d, tck, unew, cum_dist, 
                                           x_offset: float = 0, y_offset: float = 0):
+    """
+    Inverse of `convert_xy2056_to_roadway_coordinates`: map roadway
+    (s, d) coordinates back to an XY:2056 point.
+
+    Parameters
+    ----------
+    s, d    : float, roadway coordinates [m] (arc length, lateral offset)
+    tck, unew, cum_dist : centerline B-spline representation
+    x_offset, y_offset : offsets to re-add to the result
+
+    Returns
+    -------
+    x, y : float, point in XY:2056
+    """
     # Step 1: find t such that spline arc length is s
     f_inv = interp1d(cum_dist, unew, bounds_error=False, fill_value=(unew[0], unew[-1]))
     t = f_inv(s)
@@ -160,6 +222,25 @@ def convert_roadway_to_xy2056_coordinates(s, d, tck, unew, cum_dist,
 
 
 def cut_line_at_stop(line, stopline, choose='first', plotting=False):
+    """
+    Split a centerline LineString at its intersection with a stop/yield
+    line, and keep the piece that starts from the original line's own
+    first or last point.
+
+    Parameters
+    ----------
+    line     : Shapely LineString, centerline to cut
+    stopline : Shapely LineString, stop/yield line to cut at
+    choose   : 'first' or 'last', which end of the original `line`
+               the kept piece must start from
+    plotting : if True, plot the split and exit 
+               (debug only, calls sys.exit(1); not for use in a pipeline run)
+
+    Returns
+    -------
+    Shapely LineString, the kept piece. If `line` and `stopline` don't
+    intersect, returns `line` unchanged.
+    """
     intersect_pt = line.intersection(stopline)
 
     if intersect_pt is None or intersect_pt.is_empty:
@@ -215,7 +296,7 @@ def cut_line_at_stop(line, stopline, choose='first', plotting=False):
 
 
 def densify_linestring(line = None, latlon_pts = None, num_segments=5):
-    """Add interpolated points every `spacing` meters along a LineString."""
+    """Resample a LineString into `num_segments` equal-length segments."""
     if line is None:
         line = LineString([(lon, lat) for lat, lon in latlon_pts])
     
@@ -241,8 +322,6 @@ def project_line_onto_spline(line, stop_line, tck, unew, cum_dist, x_offset, y_o
     -------
     s : float — arc-length [m] where stop/yield line crosses the spline
     """
-    transformer_to_2056 = Transformer.from_crs("EPSG:4326", "EPSG:2056", always_xy=True)
-
     # Step 1 — find intersection point in WGS84 using Shapely
     intersection = line.intersection(stop_line)
 
@@ -264,7 +343,7 @@ def project_line_onto_spline(line, stop_line, tck, unew, cum_dist, x_offset, y_o
         pt = pts[0]
 
     # Step 2 — transform intersection point to EPSG:2056, and subtract local origin
-    x_2056, y_2056 = transformer_to_2056.transform(pt.x, pt.y)
+    x_2056, y_2056 = _PROJ_LONLAT_TO_2056.transform(pt.x, pt.y)
     point_2056 = np.array([x_2056, y_2056])
 
     # Step 3 — project onto spline to get s
@@ -274,6 +353,8 @@ def project_line_onto_spline(line, stop_line, tck, unew, cum_dist, x_offset, y_o
 
 def _compute_curvature(xy, eps=1e-6):
     """
+    Signed curvature of a 2-D polyline via finite differences (np.gradient).
+    
     xy: array (N,2)
     returns curvature (N,)
     """
@@ -292,6 +373,24 @@ def connect_lines_g2(xy1, xy2, n_connector=100, scale=0.4,
     """
     Connect two centerline fragments smoothly using a G2 clothoid when possible,
     falling back to a cubic Hermite for nearly straight cases.
+
+    Parameters
+    ----------
+    xy1, xy2 : array-like, shape (N, 2), the two fragments to connect,
+               in order (end of xy1 connects to start of xy2)
+    n_connector : int, number of points to sample along the connector
+    scale       : float, Hermite tangent-vector scale (fraction of the
+                  endpoint distance), only used in the Hermite fallback
+    angle_threshold_deg : below this heading difference at the junction,
+                  Hermite is used automatically instead of a clothoid
+    force_method : None (default) or 'hermite' or 'clothoid', override automatic method choice
+    verbose : if True, print a warning when SolveG2 fails and Hermite fallback is used
+
+    Returns
+    -------
+    merged    : list of (x, y), xy1 + connector + xy2, duplicates removed
+    connector : ndarray, shape (M, 2), the connector points alone
+    method    : 'clothoid' or 'hermite', which method was actually used
     """
     def _to_numpy(arr):
         arr = np.asarray(arr)
@@ -394,13 +493,9 @@ def build_d_boundary_spline(boundary_line_wgs84, tck, unew, cum_dist,
     side              : int (+1 or -1) — which side of centerline the
                         bike lane is on, derived from sign of d_boundary
     """
-    transformer_to_2056 = Transformer.from_crs(
-        "EPSG:4326", "EPSG:2056", always_xy=True
-    )
-
     # Convert boundary vertices to EPSG:2056
     coords_2056 = [
-        transformer_to_2056.transform(c[0], c[1])
+        _PROJ_LONLAT_TO_2056.transform(c[0], c[1])
         for c in boundary_line_wgs84.coords
     ]
 

@@ -3,7 +3,7 @@ TITLE OF PAPAER
 -------------------------------------------
 Authors:        Shaimaa El-Baklish
 Organization:   ETH Zürich, Switzerland, IVT - Institute for Transportation Planning and Systems
-Development:    2025
+Development:    2025-2026
 Submitted to:   JOURNAL
 -------------------------------------------
 
@@ -35,13 +35,13 @@ import osmnx as ox
 import geopandas as gpd
 import matplotlib.pyplot as plt
 
-from pyproj import Transformer
 from shapely.geometry import box
 from shapely.geometry import Point
 from shapely.plotting import plot_points
 from shapely.plotting import plot_line
 
 from _constants import BikeZ_Config
+from tools_utils import _PROJ_2056_TO_LONLAT
 from tools_coordinate_transform import cut_line_at_stop
 from tools_site_builder import (
     fit_spline_from_osmnx,
@@ -50,6 +50,7 @@ from tools_site_builder import (
     register_geometries,
     build_segment_registry,
     add_bike_lane_boundaries,
+    add_car_lane_boundaries,
     build_turns,
     build_intersection_polygon,
     build_movement_registry,
@@ -76,13 +77,18 @@ X_2056_offset = XY_2056_Bounds[0][0]
 Y_2056_offset = XY_2056_Bounds[1][0]
 
 # Site constants
-kml_path      = '../maps/from_swisstopo/June_D1.kml'
-save_path     = f'../data/registry_{date}_{intersection}_{code}.pkl'
-max_chain_len = 5    # 3 for standard movements + 2 for Mattengasse chain
+kml_path       = '../maps/from_swisstopo/June_D1.kml'
+kml_path_lanes = '../maps/from_swisstopo/June_D1_CarLanes.kml'
+save_path      = f'../data/registry_{date}_{intersection}_{code}.pkl'
+max_chain_len  = 5    # 3 for standard movements + 2 for Mattengasse chain
 
 # Link to edit drawing: https://s.geo.admin.ch/an2gmd9mh9zf
 # Share Link: https://s.geo.admin.ch/h2rb3k3hqdqb
 # GIS Share Link: https://geo.zh.ch/s/d4e68882-4d3a-4946-b208-6eb95c78f4da
+
+# Car Lanes
+# Share Link: https://s.geo.admin.ch/xp273cf92r9e
+# Edit Link: https://s.geo.admin.ch/rkj2d7ekz4fb
 
 # #############################################################################
 # MAIN
@@ -91,8 +97,7 @@ max_chain_len = 5    # 3 for standard movements + 2 for Mattengasse chain
 # =============================================================================
 # STEP 0: load external data sources
 print("Loading OSMnx features...")
-transformer = Transformer.from_crs('EPSG:2056', 'EPSG:4326', always_xy=True)
-lonlat      = transformer.transform(
+lonlat = _PROJ_2056_TO_LONLAT.transform(
     np.asarray(XY_2056_Bounds[0]) + np.asarray([-50, 50]),
     np.asarray(XY_2056_Bounds[1]) + np.asarray([-50, 50]),
 )
@@ -273,24 +278,24 @@ SEG_DEFS = [
     # ── Röntgenstrasse ───────────────────────────────────────────────────────
     {'seg_key': 'Roentgenstr_EB', 'geometry_key': 'Roentgenstr',
      'direction': 'EB', 'mode': 'shared', 'bike_lane': {'w_bike': 1.5},
-     'd_left': 1.0, 'd_right': 18.0, 
-     'car_lane_d_bnd': {
-         1: (0.0, 3.25),
-     }},
+     'd_left': 1.0, 'd_right': 18.0, },
+     # 'car_lane_d_bnd': {
+     #     1: (0.0, 3.25),
+     # }},
     {'seg_key': 'Roentgenstr_WB', 'geometry_key': 'Roentgenstr',
      'direction': 'WB', 'mode': 'shared', 'bike_lane': {'w_bike': 1.5},
-     'd_left': 1.0, 'd_right': 12.0, 
-     'car_lane_d_bnd': {
-         1: (-3.25, 0.0),
-     }},
+     'd_left': 1.0, 'd_right': 12.0, },
+     # 'car_lane_d_bnd': {
+     #     1: (-3.25, 0.0),
+     # }},
  
     # ── Zollstrasse ─────────────────────────────────────────────────────────
     {'seg_key': 'Zollstr_EB', 'geometry_key': 'Zollstr',
      'direction': 'EB', 'mode': 'shared', 'bike_lane': None,
-     'd_left': 1.0, 'd_right': 18.0, 
-     'car_lane_d_bnd': {
-         1: (-4.25, -0.5),
-     }},
+     'd_left': 1.0, 'd_right': 18.0, },
+     # 'car_lane_d_bnd': {
+     #     1: (-4.25, -0.5),
+     # }},
     {'seg_key': 'Zollstr_WB', 'geometry_key': 'Zollstr',
      'direction': 'WB', 'mode': 'bike', 'bike_lane': {'w_bike': 2.0},
      'd_left': 2.0, 'd_right': 8.0},
@@ -298,31 +303,31 @@ SEG_DEFS = [
     # ── Langstrasse North ────────────────────────────────────────────────────
     {'seg_key': 'LangstrN_NB', 'geometry_key': 'LangstrN',
      'direction': 'NB', 'mode': 'shared', 'bike_lane': None,
-     'd_left': 1.0, 'd_right': 8.0,
-     'car_lane_d_bnd': {
-         1: (-3.5, 0.0),
-     }},
+     'd_left': 1.0, 'd_right': 8.0, },
+     # 'car_lane_d_bnd': {
+     #     1: (-3.5, 0.0),
+     # }},
     {'seg_key': 'LangstrN_SB', 'geometry_key': 'LangstrN',
      'direction': 'SB', 'mode': 'shared', 'bike_lane': None,
-     'd_left': 3.0, 'd_right': 8.0,
-     'car_lane_d_bnd': {
-         1: (0.0, 4.0),
-     }},
+     'd_left': 3.0, 'd_right': 8.0, },
+     # 'car_lane_d_bnd': {
+     #     1: (0.0, 4.0),
+     # }},
  
     # ── Langstrasse South ────────────────────────────────────────────────────
     {'seg_key': 'LangstrS_NB', 'geometry_key': 'LangstrS',
      'direction': 'NB', 'mode': 'shared', 'bike_lane': {'w_bike': 2.5},
-     'd_left': 3.0, 'd_right': 11.0, 
-     'car_lane_d_bnd': {
-         1: (-4.5, -1.25),
-         2: (-1.25, 2.1),
-     }},
+     'd_left': 3.0, 'd_right': 11.0, },
+     # 'car_lane_d_bnd': {
+     #     1: (-4.5, -1.25),
+     #     2: (-1.25, 2.1),
+     # }},
     {'seg_key': 'LangstrS_SB', 'geometry_key': 'LangstrS',
      'direction': 'SB', 'mode': 'shared', 'bike_lane': {'w_bike': 2.5},
-     'd_left': 1.0, 'd_right': 12.0, 
-     'car_lane_d_bnd': {
-         1: (2.0, 5.5),
-     }},
+     'd_left': 1.0, 'd_right': 12.0, },
+     # 'car_lane_d_bnd': {
+     #     1: (2.0, 5.5),
+     # }},
  
     # ── Mattengasse ──────────────────────────────────────────────────────────
     {'seg_key': 'Matteng_SB', 'geometry_key': 'Matteng',
@@ -343,6 +348,9 @@ gdf_bike_boundaries = gdf_swisstopo[
 ].copy()
 add_bike_lane_boundaries(segment_registry, geometry_store, gdf_bike_boundaries)
 
+print("--- Step 2c: project car lane polygons and boundaries ---")
+gdf_car_lane_polygons = gpd.read_file(kml_path_lanes, driver='KML')
+add_car_lane_boundaries(segment_registry, geometry_store, gdf_car_lane_polygons)
 
 # =============================================================================
 # PHASE 3: build_turns
@@ -596,5 +604,5 @@ m = create_registry_map(
     geometry_store, segment_registry, movement_registry,
     gdf_swisstopo,
     base_map_src='gis-zh',
-    save_path=f'../maps/registry_{date}_{intersection}_{code}_gis.html',
+    save_path=f'../maps/registry_location{loc_num}.html',
 )

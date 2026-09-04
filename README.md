@@ -1,4 +1,4 @@
-# BikeZ-ETH Processing
+# BikeZ-ETH Data Post-Processing
 
 <p align="center">
   <a href="dashboard/output/full_dashboard.html"><img src="https://img.shields.io/badge/-📊_Interactive_Dashboard-1B2430?style=for-the-badge" alt="Dashboard"></a>
@@ -16,10 +16,10 @@
 
 - [Installation](#installation)
 - [Setup and Configuration](#setup-and-configuration)
-- **Data Processing**
-    - [Gap Inference + EKF-RTS Smoothing Algorithm](#mobilysis-data-processing-gap-inference--ekf-rts-smoothing-algorithm)
-    - [Down-sampling](#mobilysis-data-processing-down-sampling)
-    - [Lane Coordinate Transformation](#mobilysis-data-processing-lane-coordinate-transformation)
+- **Data Post-Processing**
+    - [Gap Inference + EKF-RTS Smoothing Algorithm](#data-post-processing-gap-inference--ekf-rts-smoothing-algorithm)
+    - [Down-sampling](#data-post-processing-down-sampling)
+    - [Lane Coordinate Transformation](#data-post-processing-lane-coordinate-transformation)
 - **Data Visualization**
     - [HTML Animation Tools](#data-visualization-tools)
     - [Interactive Dashboard ↗](dashboard/output/full_dashboard.html)
@@ -62,7 +62,7 @@ This project was developed on Windows (win-64) with **Python 3.13**, and has als
 
 
 ## Setup and Configuration
-The BikeZ-ETH dataset configuration settings are summarized in the `BikeZ_Config` dataclass in `_constant.py` file.
+The BikeZ-ETH dataset configuration settings are summarized in the `BikeZ_Config` dataclass in `_constants.py` file.
 
 **Change the root path of the data directory, i.e. the variables `dir_root`, `data_root`, and `subsampled_data_root`.**
 ```python
@@ -107,7 +107,7 @@ This is a summary of the available files.
 ---
 
 
-## MobiLysis Data Processing: Gap Inference + EKF-RTS Smoothing Algorithm
+## Data Post-Processing: Gap Inference + EKF-RTS Smoothing Algorithm
 
 Run for a single csv trajectory data file by executing:
 ```bash
@@ -142,7 +142,7 @@ Example Original File: trajectories_bikes_2025-06-16_D3_AM1_E-1.csv
 | `speed`           | Original estimated speed (km/h)                                                                                                                                               |
 | `a`               | Original estimated acceleration (m/s<sup>2</sup>)                                                                                                                             |
 | `lat`, `lon`      | Latitude and longitude of bike position                                                                                                                                       |
-| `x`, `y`          | Offset-corrected X and Y positions (meters), where `x = x_act - x_offset` and `y = y_act - y_offset` (offsets defined per location in `_constant.py` for numerical stability) |
+| `x`, `y`          | Offset-corrected X and Y positions (meters), where `x = x_act - x_offset` and `y = y_act - y_offset` (offsets defined per location in `_constants.py` for numerical stability) |
 | `angle`           | Estimated heading angle (rad)                                                                                                                                                 |
 | `angular_vel`     | Estimated angular velocity (rad/s)                                                                                                                                            |
 | `angvel_clipped`  | Boolean flag indicating whether angular velocity was clipped (threshold: 3 rad/s)                                                                                             |
@@ -155,7 +155,7 @@ Example Original File: trajectories_bikes_2025-06-16_D3_AM1_E-1.csv
 ---
 
 
-## MobiLysis Data Processing: Down-Sampling
+## Data Post-Processing: Down-Sampling
 The trajectory dataset is downsampled to **10 fps** on a homogenous master time-grid *shared between bicycles and vehicles*.
 
 Run for a single csv trajectory data file by executing:
@@ -171,7 +171,7 @@ Or, you can run for the entire dataset via the batch script `run_subsampling.bat
 
 ### Outputs
 
-The output is a csv file saved in the specified output path, with the naming convention: `locationNumber_mode_date_timeslot.csv`
+The output is a parquet file saved in the specified output path, with the naming convention: `locationNumber_mode_date_timeslot.parquet`
 | Column | Description |
 | --- | --- |
 | `veh_id` | Unique vehicle (bike) identifier (same as EKF output) |
@@ -190,7 +190,7 @@ The output is a csv file saved in the specified output path, with the naming con
 ---
 
 
-## MobiLysis Data Processing: Lane Coordinate Transformation
+## Data Post-Processing: Lane Coordinate Transformation
 Run for a single csv trajectory data file by executing:
 ```bash
 python main_coordinate_transform.py %DATE% %VEH_TYPE% %INTERSECTION% %CODE% %TIMESLOT% %SUBSAMPLED_FLAG% %DEBUG_FLAG%
@@ -218,8 +218,8 @@ The following output columns are added.
 |---|---|---|
 | `movement_key` | str | e.g. `'LangstrN_SB_2_LangstrS_SB'` |
 | `segment_id` | str | e.g. `'LangstrS_SB'` |
-| `segment_type` | str | `'lane'` or `'turn'` |
-| `segment_role` | str | `'approach'`, `'turn'`, `'departure'` |
+| `segment_type` | str | `'lane'` or `'turn'` or `'ring'` |
+| `segment_role` | str | `'approach'`, `'turn'`, `'ring'`, `'departure'` |
 | `match_quality` | str | `'good'`, `'poor'`, `'fallback'`, `'unmatched'` |
 | `is_fallback` | bool | polygon matched mid-fragment |
 | `is_reverse` | bool | cyclist against segment direction |
@@ -227,32 +227,28 @@ The following output columns are added.
 | `d_native` | float | lateral offset, left of spline = + [m], **invertible** |
 | `s` | float | directed s [m], increases in travel direction |
 | `d` | float | lateral offset, left of travel = + [m] |
-| `s_dot` | float | longitudinal speed [km/h] |
-| `d_dot` | float | lateral speed [km/h] |
+| `s_dot` | float | longitudinal speed [m/s] |
+| `d_dot` | float | lateral speed [m/s] |
 | `s_ddot` | float | longitudinal acceleration [m/s<sup>2</sup>] |
 | `d_ddot` | float | lateral acceleration [m/s<sup>2</sup>] |
 | `in_bike_lane` | uint8 | 1 / 0 / NaN |
 | `d_to_bike_boundary` | float | distance from bike lane inner boundary [m] |
+| `car_lane_idx` | Int64 | matched car lane index, `<NA>` where in bike lane, not a `'lane'` segment, or no bin matched |
 
-Note: `(s_native, d_native, segment_id)` is the **invertible** triple $\rightarrow$ recovers `(x, y)`.
+**Notes:** 
+- `(s_native, d_native, segment_id)` is the **invertible** triple $\rightarrow$ recovers `(x, y)`.
+- `speed_ekf` is also converted from km/h to m/s in this step, so its units differ from the down-sampling output above.
+- For `%SUBSAMPLED_FLAG%=True`, the CSV output retains only `s_native`/`d_native`; the directed `s`/`d` columns are dropped. They can be recomputed **per trajectory** with the function `compute_travel_directed_s_d(bike_df, segment_registry, geometry_store)`.
+    ```python
+        from tools_lane_coords_V5 import compute_travel_directed_s_d
+
+        df = df.groupby('veh_id', group_keys=False).apply(
+            lambda g: compute_travel_directed_s_d(g, segment_registry, geometry_store)
+        )
+    ```
+    The function reads `segment_id`, `segment_role`, `is_reverse`, `s_native`, `d_native`, `x_ekf`, `y_ekf`; all retained in the CSV. It also adds `cumulative_s`: longitudinal position stitched continuously across segment boundaries [m], with ring runs unwrapped so a second lap accumulates rather than resetting.
 
 ### Overview
-
-<!-- The lane coordinate transform maps raw GPS trajectories from global EPSG:2056 `(x, y)` coordinates to road-aligned `(s, d)` coordinates at each intersection. The transform is built on three registries, constructed once per site using `tools_site_builder.py` and saved as a pickle file. -->
-
-<!-- <div style="float: right; margin-left: 20px; width: 400px; text-align: center;">
-  <img src="./assets/site_building_registry.png" alt="Schematic diagram of the registry map layers." width="400"><br>
-  <em>Figure 2: Schematic diagram of the registry map layers.</em>
-</div> -->
-
-<!-- - **`geometry_store`** : one entry per physical road axis. Stores the B-spline fit to the road centerline, total arc length, stop/yield line positions (`s_stop`, `s_yield`, `s_change`), intersection area polygons, and local coordinate offsets.
-- **`segment_registry`** : one entry per directed travel segment (e.g. `LangstrS_NB`, `turn_LangstrS_NB_2_LangstrN_NB`). Stores segment type (`lane` or `turn`), travel direction, lateral validity bounds (`d_left`, `d_right`), validity polygon, and mode (`shared`, `bike`, or `car`). Also, contains bike lane details (`bike_lane`), as well as car lane lateral bounds (`car_lane_d_bnds`).
-- **`movement_registry`** : one entry per observable movement through the intersection (e.g. `LangstrN_SB_2_LangstrS_SB`). Each entry is an ordered sequence of `(segment_key, role)` pairs: approach lane $\rightarrow$ turn $\rightarrow$ departure lane.
-
-At runtime, `to_lane_coordinates` walks each trajectory through these registries sequentially, matching points to segments via polygon containment and spline projection, and computing the full `(s, d, s_dot, d_dot, s_ddot, d_ddot)` decomposition.
-
-**Segment key conventions:** lane segment keys follow `{Road}_{Direction}` (e.g. `LangstrS_NB`); turn segment keys follow `turn_{approach_seg}_2_{departure_seg}` (e.g. `turn_LangstrS_NB_2_LangstrN_NB`). All valid keys are listed in `segment_registry`. -->
-
 
 <table>
 <tr>
@@ -260,10 +256,10 @@ At runtime, `to_lane_coordinates` walks each trajectory through these registries
 The lane coordinate transform maps raw GPS trajectories from global EPSG:2056 `(x, y)` coordinates to road-aligned `(s, d)` coordinates at each intersection. The transform is built on three registries, constructed once per site using `tools_site_builder.py` and saved as a pickle file.
 
 - **`geometry_store`** : one entry per physical road axis. Stores the B-spline fit to the road centerline, total arc length, stop/yield line positions (`s_stop`, `s_yield`, `s_change`), intersection area polygons, and local coordinate offsets.
-- **`segment_registry`** : one entry per directed travel segment (e.g. `LangstrS_NB`, `turn_LangstrS_NB_2_LangstrN_NB`). Stores segment type (`lane` or `turn`), travel direction, lateral validity bounds (`d_left`, `d_right`), validity polygon, and mode (`shared`, `bike`, or `car`). Also, contains bike lane details (`bike_lane`), as well as car lane lateral bounds (`car_lane_d_bnds`).
+- **`segment_registry`** : one entry per directed travel segment (e.g. `LangstrS_NB`, `turn_LangstrS_NB_2_LangstrN_NB`). Stores segment type (`lane` or `turn`), travel direction, lateral validity bounds (`d_left`, `d_right`), validity polygon, and mode (`shared`, `bike`, or `car`). Also, contains bike lane details (`bike_lane`), as well as car lane lateral bounds (`car_lane_d_bnd`).
 - **`movement_registry`** : one entry per observable movement through the intersection (e.g. `LangstrN_SB_2_LangstrS_SB`). Each entry is an ordered sequence of `(segment_key, role)` pairs: approach lane $\rightarrow$ turn $\rightarrow$ departure lane.
 
-At runtime, `to_lane_coordinates` walks each trajectory through these registries sequentially, matching points to segments via polygon containment and spline projection, and computing the full `(s, d, s_dot, d_dot, s_ddot, d_ddot)` decomposition.
+At runtime, `to_lane_coordinates` (in `tools_lane_coords_V5.py`) walks each trajectory through these registries, proposing candidate breakpoints from gate crossings and polygon transitions, then selecting the segment chain by dynamic programming, and computing the full `(s, d, s_dot, d_dot, s_ddot, d_ddot)` decomposition.
 
 **Segment key conventions:** lane segment keys follow `{Road}_{Direction}` (e.g. `LangstrS_NB`); turn segment keys follow `turn_{approach_seg}_2_{departure_seg}` (e.g. `turn_LangstrS_NB_2_LangstrN_NB`). All valid keys are listed in `segment_registry`.
 </td>
@@ -294,11 +290,10 @@ Output columns are the same as `to_lane_coordinates`, with `match_quality='force
 
 **When to use:**
 
-- Trajectory starts in the vicinity of change points (automatic pipeline cannot establish the approach segment).
 - Very short trajectories (< ~20 points) where polygon scoring is unreliable.
 - Ground-truth labelling for validation or downstream analysis.
 
-**To include in main pipeline:** add desired vehicle or bicycle IDs into the csv file `./data/forced_transforms.csv`.
+<!--- **To include in main pipeline:** add desired vehicle or bicycle IDs into the csv file `./data/forced_transforms.csv`. --->
 
 ---
 
@@ -337,7 +332,7 @@ Togglable layer groups (via top-right layer control):
 |---|---|---|---|
 | A. Cumulative s vs d | Continuous s stitched across segment boundaries [m] | d [m] | vrect shading for `is_reverse` (salmon) and `in_bike_lane` (green) |
 | B. s_native vs d_native | s_native [m] | d_native [m] | One trace per segment; time is the animation dimension |
-| C. Speed, $\dot{s}$ , $\dot{d}$ vs time | t [s] | km/h | `speed_ekf` grey dashed; `s_dot` / `d_dot` solid/dotted per segment colour; vrect flags |
+| C. Speed, $\dot{s}$ , $\dot{d}$ vs time | t [s] | m/s | `speed_ekf` grey dashed; `s_dot` / `d_dot` solid/dotted per segment colour; vrect flags |
 
 Click any plot to jump the scrubber to that position. All panels share the same segment colour palette.
 

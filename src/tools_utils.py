@@ -1,26 +1,93 @@
 """
-tools_utils.py
------------------------
-Some miscellaneous tools for plotting, etc.
+TITLE OF PAPAER
+-------------------------------------------
+Authors:        Shaimaa El-Baklish
+Organization:   ETH Zürich, Switzerland, IVT - Institute for Transportation Planning and Systems
+Development:    2025-2026
+Submitted to:   JOURNAL
+-------------------------------------------
 
-Authors : ETH Zürich IVT
+Some miscellaneous tools for plotting, transformation, etc.
 """
 
-# =============================================================================
+# #############################################################################
 # IMPORTS
-# =============================================================================
+# #############################################################################
+import logging
+
 import numpy as np
 import pandas as pd
-import matplotlib as mpl
-import matplotlib.cm as cm
 import matplotlib.colors as mcolors
 import plotly.graph_objects as go
 
+from pyproj import Transformer
 from collections import defaultdict
 from scipy.interpolate import splev
+from matplotlib.patches import Polygon as MplPolygon
+from shapely.geometry import Polygon, MultiPolygon
+from matplotlib.path import Path
+from matplotlib.patches import PathPatch
+
+# #############################################################################
+# MISCELLANEOUS FUNCTIONS
+# #############################################################################
 
 # =============================================================================
-# HELPERS
+# LOGGER
+# =============================================================================
+def _get_logger(debug: bool) -> logging.Logger:
+    """
+    Return a logger configured to DEBUG level when debug=True,
+    WARNING otherwise. Call once at the start of each public function.
+    """
+    logger = logging.getLogger(__name__)
+    level = logging.DEBUG if debug else logging.WARNING
+    if not logger.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter(
+            '[%(levelname)s] %(name)s — %(message)s'
+        ))
+        logger.addHandler(handler)
+    logger.setLevel(level)
+    return logger
+
+# =============================================================================
+# GLOBAL COORDINATE SYSTEMS TRANSFORMERS
+# =============================================================================
+_PROJ_2056_TO_LONLAT = Transformer.from_crs("EPSG:2056", "EPSG:4326", always_xy=True)
+_PROJ_LONLAT_TO_2056 = Transformer.from_crs("EPSG:4326", "EPSG:2056", always_xy=True)
+
+
+# =============================================================================
+# HELPERS: Bike lane width
+# =============================================================================
+
+def w_bike_at(bike_lane, s):
+    """Bike lane width at native arc position(s) s. Scalar- and array-safe."""
+    spl = bike_lane.get('w_bike_spline')
+    if spl is None:
+        return bike_lane['w_bike']
+    return spl(s)
+
+
+def w_bike_label(bike_lane, decimals=2):
+    """
+    Format a bike lane width for display. Mirrors w_bike_at: returns the
+    scalar width when the lane is constant, and a lo–hi range when a taper
+    profile is present.
+    """
+    spl = bike_lane.get('w_bike_spline')
+    if spl is None:
+        return f"{bike_lane['w_bike']:.{decimals}f} m"
+
+    lo, hi = bike_lane.get('w_range', (float(np.min(spl.y)), float(np.max(spl.y))))
+    if hi - lo < 10.0 ** (-decimals) / 2:
+        return f"{lo:.{decimals}f} m"
+    return f"{lo:.{decimals}f}–{hi:.{decimals}f} m"
+
+
+# =============================================================================
+# HELPERS: Transformation
 # =============================================================================
 
 # def _is_axis_entry(geom_key, geo):
@@ -85,32 +152,161 @@ def _spline_xy_variable_offset(tck, unew, cum_dist, s_vals, d_vals):
     y_c = y_c + d_vals * ny
     return x_c, y_c
 
+
+def _local_to_latlon(x_arr, y_arr, x_offset, y_offset):
+    lon, lat = _PROJ_2056_TO_LONLAT.transform(
+        np.asarray(x_arr) + x_offset,
+        np.asarray(y_arr) + y_offset,
+    )
+    return list(zip(lat, lon))
+
+
+def _spline_xy_to_latlon(tck, unew, cum_dist, s_start, s_end, x_offset, y_offset,
+                          d_offset=0.0, n=150):
+    """
+    Evaluate spline between s_start and s_end, laterally offset by
+    d_offset metres (left = positive) → [(lat, lon), …] for folium.
+    d_offset=0 gives the centerline.
+    For a single point, pass s_start == s_end with n=1 and take [0].
+    """
+    x, y = _spline_xy(tck, unew, cum_dist, s_start, s_end, d_offset=d_offset, n=n)
+    return _local_to_latlon(x, y, x_offset, y_offset)
+
+
+def _spline_xy_variable_offset_to_latlon(tck, unew, cum_dist, s_vals, d_vals,
+                                          x_offset, y_offset):
+    """
+    Like _spline_xy_to_latlon, but accepts an array of per-point lateral
+    offsets (d_vals) instead of a single scalar d_offset — needed when the
+    offset varies along s (e.g. a bike lane boundary spline).
+
+    s_vals, d_vals : arrays of the same length, d in metres (left = +).
+    Returns a list of (lat, lon) tuples.
+    """
+    x, y = _spline_xy_variable_offset(tck, unew, cum_dist, s_vals, d_vals)
+    return _local_to_latlon(x, y, x_offset, y_offset)
+
+
+def _is_ring_entry(geo):
+    """True for a closed circulating carriageway (register_ring_geometry)."""
+    return isinstance(geo, dict) and bool(geo.get('periodic'))
+ 
+ 
+def _ring_gates(geo):
+    """
+    [(key, s, is_entry, theta_rad)] for a ring geometry, ordered by s.
+ 
+    theta is the bearing of the gate from the ring center, which is what
+    every plot needs to draw the gate as a radial tick across the
+    carriageway rather than a dot on the centerline. A gate is an iso-s
+    CROSS-SECTION: a trajectory crosses it anywhere across the corridor.
+    """
+    if not _is_ring_entry(geo):
+        return []
+    R = geo['radius']
+    th0 = np.radians(geo.get('theta0_deg', 0.0))
+    out = []
+    for k, s in geo.items():
+        if not (k.startswith('s_entry_') or k.startswith('s_exit_')):
+            continue
+        out.append((k, float(s), k.startswith('s_entry_'), float(s) / R + th0))
+    return sorted(out, key=lambda r: r[1])
+ 
+ 
+def _polygon_patch(poly, **kwargs):
+    """
+    A matplotlib PathPatch that honours interior rings.
+ 
+    Replaces the `x, y = p.exterior.xy; MplPolygon(...)` pattern wherever
+    it appears. Handles MultiPolygon too, so the bare `except Exception:
+    pass` guards around the old calls can go — they were swallowing
+    MultiPolygon cases silently rather than drawing them.
+    """
+    if poly is None or poly.is_empty:
+        return None
+ 
+    def _codes(n):
+        return [Path.MOVETO] + [Path.LINETO] * (n - 2) + [Path.CLOSEPOLY]
+ 
+    verts, codes = [], []
+    for g in (poly.geoms if isinstance(poly, MultiPolygon) else [poly]):
+        ext = list(g.exterior.coords)
+        verts += ext
+        codes += _codes(len(ext))
+        for interior in g.interiors:
+            ivs = list(interior.coords)
+            verts += ivs
+            codes += _codes(len(ivs))
+ 
+    return PathPatch(Path(verts, codes), **kwargs)
+ 
+ 
+def _polygon_rings_latlon(poly, x_offset, y_offset):
+    """
+    Shapely polygon (local EPSG:2056) → folium `locations`, holes included.
+ 
+    Returns a list of POLYGONS, each a list of rings [exterior, *holes].
+    Leaflet reads the second and later rings of a polygon as holes, so
+    passing the whole list straight to folium.Polygon(locations=...) draws
+    the annulus correctly.
+ 
+    This changes the return shape of the old _polygon_coords, which
+    returned a flat list of rings. Call sites keep the same form:
+ 
+        for rings in _polygon_rings_latlon(poly, x_offset, y_offset):
+            folium.Polygon(locations=rings, ...)
+    """
+    if poly is None or poly.is_empty:
+        return []
+ 
+    out = []
+    for g in (poly.geoms if isinstance(poly, MultiPolygon) else [poly]):
+        rings = [_local_to_latlon(*g.exterior.xy, x_offset, y_offset)]
+        for interior in g.interiors:
+            rings.append(_local_to_latlon(*interior.xy, x_offset, y_offset))
+        out.append(rings)
+    return out
+
+
+def _ring_arc_latlon(geo, s_from, s_to, x_offset, y_offset, n=200):
+    """
+    CCW arc of a ring between two gates, wrapping the s = 0 seam.
+
+    _spline_xy_to_latlon cannot do this: it linspaces from s_start to
+    s_end, so an arc crossing the seam would run backwards the long way
+    round.
+    """
+    tck, unew, cum_dist = geo['spline']
+    L = geo['total_length']
+    sweep = (s_to - s_from) % L
+    if sweep < 1e-6:
+        sweep = L                       # entry gate == exit gate: full lap
+    s_vals = np.mod(s_from + np.linspace(0.0, sweep, n), L)
+    t_vals = np.interp(s_vals, cum_dist, unew)
+    x, y = splev(t_vals, tck)
+    return _local_to_latlon(x, y, x_offset, y_offset)
+
 # =============================================================================
 # COLOR PALETTE
 # =============================================================================
 # Assigned in geometry_store insertion order, skipping x_offset / y_offset.
 # Extra entries (turns) get a fallback gray.
-_PALETTE = [
-    'steelblue', 'tomato', 'mediumpurple', 'darkorange',
-    'seagreen',  'crimson', 'goldenrod',   'teal',
-    'slategray', 'orchid',  'sienna',      'cornflowerblue',
-    'deeppink',  'olive',   'peru',        'dodgerblue',
-]
-
 def _build_color_map(geometry_store):
     """
     Return {geom_key: color} for all lane axes (non-turn entries).
     Turn entries (s_stop=None) get 'dimgray'.
     """
+    from _constants import _GEOM_PALETTE, _GEOM_PALETTE_FALLBACK
+    
     lane_keys = [
         k for k, v in geometry_store.items()
-        if _is_axis_entry(k, v) and v.get('s_stop') is not None
+        if _is_axis_entry(k, v) and (v.get('s_stop') is not None or v.get('periodic'))
     ]
-    cmap = {k: _PALETTE[i % len(_PALETTE)] for i, k in enumerate(lane_keys)}
+    cmap = {k: _GEOM_PALETTE[i % len(_GEOM_PALETTE)] for i, k in enumerate(lane_keys)}
     # Turns
     for k, v in geometry_store.items():
         if _is_axis_entry(k, v) and k not in cmap:
-            cmap[k] = 'dimgray'
+            cmap[k] = _GEOM_PALETTE_FALLBACK
     return cmap
 
 
@@ -131,6 +327,24 @@ def add_road_axes_plotly(fig, geometry_store, color_map=None, offset_m=1.5,
 
     for geom_key, geo in geometry_store.items():
         if not _is_axis_entry(geom_key, geo):
+            continue
+        if _is_ring_entry(geo):
+            tck, unew, cum = geo['spline']
+            xr, yr = splev(np.linspace(0, 1, 400), tck)
+            fig.add_trace(go.Scatter(x=xr, y=yr, mode='lines',
+                                     line=dict(color=color_map[geom_key], width=3),
+                                     name=f'{geom_key} (CCW)'))
+            cx, cy = geo['center']
+            for k, s, is_entry, th in _ring_gates(geo):
+                gcol = 'seagreen' if is_entry else 'crimson'
+                fig.add_trace(go.Scatter(
+                    x=[cx + geo['r_inner'] * np.cos(th),
+                       cx + geo['r_outer'] * np.cos(th)],
+                    y=[cy + geo['r_inner'] * np.sin(th),
+                       cy + geo['r_outer'] * np.sin(th)],
+                    mode='lines', line=dict(color=gcol, width=2),
+                    name=k, showlegend=False,
+                    hovertext=f'{k} = {s:.2f} m', hoverinfo='text'))
             continue
         if geo.get('s_stop') is None:
             continue  # skip turn entries stored alongside axes
@@ -208,13 +422,13 @@ def add_bike_lane_boundaries_plotly(fig, geometry_store, segment_registry,
         tck, unew, cum_dist = geo['spline']
 
         d_bnd_spl    = bike_lane['d_boundary_spline']
-        w_bike       = bike_lane['w_bike']
+        w_bike_lbl   = w_bike_label(bike_lane)
         side         = bike_lane['side']
         s_min, s_max = bike_lane['s_domain']
 
         s_bl  = np.linspace(s_min, s_max, n_pts)
         d_bnd = d_bnd_spl(s_bl)
-        d_far = d_bnd + side * w_bike
+        d_far = d_bnd + side * w_bike_at(bike_lane, s_bl)
 
         x_bnd, y_bnd = _spline_xy_variable_offset(tck, unew, cum_dist, s_bl, d_bnd)
         x_far, y_far = _spline_xy_variable_offset(tck, unew, cum_dist, s_bl, d_far)
@@ -232,7 +446,7 @@ def add_bike_lane_boundaries_plotly(fig, geometry_store, segment_registry,
             legendgroup=legend_group,
             showlegend=first_trace,   # only the first trace shows in legend
             hoveron='points',
-            hovertemplate=f'{seg_key} bike lane (w={w_bike:.2f} m)<extra></extra>',
+            hovertemplate=f'{seg_key} bike lane (w={w_bike_lbl})<extra></extra>',
         ))
 
         # Near boundary line (crisper edge on top of the fill)
@@ -313,7 +527,13 @@ def add_turn_centerline_plotly(fig, geometry_store, segment_registry,
         if show_validity_polygons:
             poly = te.get('validity_polygon')
             if poly is not None and not poly.is_empty:
-                try:
+                if poly.interiors:
+                    for ring in [poly.exterior, *poly.interiors]:
+                        px, py = ring.xy
+                        fig.add_trace(go.Scatter(x=list(px), y=list(py), mode='lines',
+                                                 line=dict(color=col_t, width=0.8, dash='dot'),
+                                                 showlegend=False, hoverinfo='skip'))
+                else:
                     px, py = poly.exterior.xy
                     fig.add_trace(go.Scatter(
                         x=list(px), y=list(py), mode='lines',
@@ -324,8 +544,6 @@ def add_turn_centerline_plotly(fig, geometry_store, segment_registry,
                         legendgroup=legend_group, showlegend=False,
                         hoverinfo='skip',
                     ))
-                except Exception:
-                    pass
     return fig, turn_colors
 
 
@@ -390,3 +608,21 @@ def extract_all_gaps(veh_df, include_datetime=False):
         gaps['end_datetime'] = end_datetime
     
     return gaps
+
+
+
+# =============================================================================
+# MATPLOTLIB PLOT POLYGONS
+# =============================================================================
+def _plot_shapely_poly(ax, geom, facecolor, edgecolor, alpha=0.15, lw=1.2, ls='-', label=None):
+    """Handles both Polygon and MultiPolygon (unary_union can return either)."""
+    if geom is None or geom.is_empty:
+        return
+    polys = geom.geoms if isinstance(geom, MultiPolygon) else [geom]
+    for i, p in enumerate(polys):
+        x, y = p.exterior.xy
+        patch = _polygon_patch(geom, facecolor=facecolor, edgecolor=edgecolor,
+                               alpha=alpha, linewidth=lw, linestyle=ls,
+                               label=label)
+        if patch is not None:
+            ax.add_patch(patch)

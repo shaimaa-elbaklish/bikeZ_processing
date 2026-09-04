@@ -3,9 +3,16 @@ TITLE OF PAPAER
 -------------------------------------------
 Authors:        Shaimaa El-Baklish
 Organization:   ETH Zürich, Switzerland, IVT - Institute for Transportation Planning and Systems
-Development:    2025
+Development:    2025-2026
 Submitted to:   JOURNAL
 -------------------------------------------
+
+Command-line entry point: runs the EKF + clothoid gap-inference trajectory
+filter (tools_kalman.calculate_kalman_filtered_trajectory) on one
+(date, mode, intersection, code, timeslot) recording, and writes the
+filtered trajectory to a .parquet file alongside MAE/RMSE summary stats.
+
+Usage: python main_kf.py <date> <mode> <intersection> <code> <timeslot> <debug>
 """
 
 # #############################################################################
@@ -115,7 +122,7 @@ for veh_id, veh_df in df.groupby('veh_id'):
 # MAIN: Perform EKF for all bicycles
 # #############################################################################
 Qk = np.diag([1.0, 1.0, 1.0, 10.0]).astype(np.float64)   # covariance matrix of error of state
-Rk = np.diag([1.0, 1.0, 5.0, 10.0]).astype(np.float64)   # covariance matrix of error of output
+Rk = np.diag([1.0, 1.0, 2.0, 10.0]).astype(np.float64)   # covariance matrix of error of output
 
 filt_df = None
 # unique_ids = [35, 86, 22, 72, 152, 161] # test

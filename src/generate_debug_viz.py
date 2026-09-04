@@ -1,25 +1,15 @@
 """
-generate_debug_viz.py
----------------------
+TITLE OF PAPAER
+-------------------------------------------
+Authors:        Shaimaa El-Baklish
+Organization:   ETH Zürich, Switzerland, IVT - Institute for Transportation Planning and Systems
+Development:    2025-2026
+Submitted to:   JOURNAL
+-------------------------------------------
+
+
 Interactive HTML debug visualisation for one bicycle trajectory after
 lane coordinate transform.
-
-LEFT  pane : Leaflet / swisstopo satellite map  (light mode)
-  - Segment centerlines           ← togglable layer group
-  - Change-point markers          ← togglable layer group
-  - Validity polygons             ← togglable layer group
-  - Bike lane bands               ← togglable layer group
-  - Trajectory coloured by segment_id
-  - Animated playhead
-
-RIGHT pane : Three Plotly panels stacked vertically
-  A  cumulative s vs d           (coloured by segment, vrect flags)
-  B  s_native vs d_native        (coloured by segment, time = animation dim)
-  C  speed_ekf + s_dot + d_dot vs time  (vrect flags)
-
-Flags visualised as translucent vrect shading on time-axis plots (A & C):
-  is_reverse    → salmon  (#ef4444, 0.10 opacity)
-  in_bike_lane  → green   (#22c55e, 0.10 opacity)
 
 Usage
 -----
@@ -35,40 +25,15 @@ Usage
 import json
 import math
 import numpy as np
-from scipy.interpolate import splev
-from pyproj import Transformer
 
+from tools_utils import _PROJ_2056_TO_LONLAT
+from tools_utils import _local_to_latlon, _spline_xy_to_latlon
+from tools_utils import _spline_xy_variable_offset_to_latlon
+from tools_utils import w_bike_at, w_bike_label
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
-
-_to_wgs84 = Transformer.from_crs("EPSG:2056", "EPSG:4326", always_xy=True)
-
-
-def _sd_to_latlon(s_arr, d_arr, tck, unew, cum_dist, x_offset, y_offset):
-    """(s_native, d) pairs on a spline → [[lat, lon], ...] in WGS84."""
-    s_arr = np.asarray(s_arr, dtype=float)
-    d_arr = np.asarray(d_arr, dtype=float)
-    t_arr    = np.interp(s_arr, cum_dist, unew)
-    xp, yp   = splev(t_arr, tck, der=0)
-    xp1, yp1 = splev(t_arr, tck, der=1)
-    norms    = np.sqrt(xp1**2 + yp1**2)
-    norms    = np.where(norms > 1e-12, norms, 1.0)
-    tx = xp1 / norms;  ty = yp1 / norms
-    nx = -ty;          ny =  tx          # left-hand normal
-    x_pts = xp + d_arr * nx
-    y_pts = yp + d_arr * ny
-    lon, lat = _to_wgs84.transform(x_pts + x_offset, y_pts + y_offset)
-    return [[float(la), float(lo)] for la, lo in zip(lat, lon)]
-
-
-def _s_to_latlon(s_val, tck, unew, cum_dist, x_offset, y_offset):
-    """Single s_native → [lat, lon] at d=0 (on centerline)."""
-    pts = _sd_to_latlon([s_val], [0.0], tck, unew, cum_dist, x_offset, y_offset)
-    return pts[0]
-
-
 def _safe(val):
     try:
         if math.isnan(val) or math.isinf(val):
@@ -80,7 +45,7 @@ def _safe(val):
 
 def _build_traj_json(df):
     """Serialise trajectory to JSON."""
-    lon_arr, lat_arr = _to_wgs84.transform(
+    lon_arr, lat_arr = _PROJ_2056_TO_LONLAT.transform(
         df["x_act_ekf"].values, df["y_act_ekf"].values
     )
     records = []
@@ -119,18 +84,6 @@ def _chain_seg_keys(bike_df):
     return seen
 
 
-def _polygon_to_latlon(poly, x_offset, y_offset):
-    """Shapely Polygon → [[lat, lon], ...] ring for Leaflet."""
-    if poly is None or poly.is_empty:
-        return []
-    xs, ys = poly.exterior.coords.xy
-    lon_arr, lat_arr = _to_wgs84.transform(
-        np.array(xs) + x_offset,
-        np.array(ys) + y_offset
-    )
-    return [[float(la), float(lo)] for la, lo in zip(lat_arr, lon_arr)]
-
-
 def _build_map_layers(chain_seg_keys, segment_registry, geometry_store,
                       n_pts=300):
     """
@@ -157,12 +110,14 @@ def _build_map_layers(chain_seg_keys, segment_registry, geometry_store,
 
         # ── Centerline ─────────────────────────────────────────────────────
         s_cl  = np.linspace(0, total_len, n_pts)
-        cl_ll = _sd_to_latlon(s_cl, np.zeros(n_pts),
-                               tck, unew, cum_dist, x_offset, y_offset)
+        cl_ll = _spline_xy_variable_offset_to_latlon(
+            tck, unew, cum_dist, s_cl, np.zeros(n_pts), x_offset, y_offset)
 
         # ── Validity polygon ────────────────────────────────────────────────
         vp = entry.get('validity_polygon')
-        vp_ll = _polygon_to_latlon(vp, x_offset, y_offset)
+        vp_ll = ([] if (vp is None or vp.is_empty)
+                 else _local_to_latlon(*vp.exterior.coords.xy, x_offset, y_offset))
+
 
         # ── Change-point marker ─────────────────────────────────────────────
         # Use the approach_s_change_key if present (turn), else 's_change'
@@ -170,8 +125,9 @@ def _build_map_layers(chain_seg_keys, segment_registry, geometry_store,
         s_chg = geom.get(s_change_key) if s_change_key else geom.get('s_change')
         chg_ll = None
         if s_chg is not None:
-            chg_ll = _s_to_latlon(float(s_chg), tck, unew, cum_dist,
-                                   x_offset, y_offset)
+            chg_ll = _spline_xy_to_latlon(
+                tck, unew, cum_dist, float(s_chg), float(s_chg), 
+                x_offset, y_offset, n=1)[0]
 
         layer = {
             "seg_key":    seg_key,
@@ -191,23 +147,23 @@ def _build_map_layers(chain_seg_keys, segment_registry, geometry_store,
         if (entry["type"] == "lane" and bike_lane is not None
                 and "d_boundary_spline" in bike_lane):
             d_bnd_spl    = bike_lane["d_boundary_spline"]
-            w_bike       = bike_lane["w_bike"]
+            # w_bike       = bike_lane["w_bike"]
             side         = bike_lane["side"]
             s_min, s_max = bike_lane["s_domain"]
 
             s_bl  = np.linspace(s_min, s_max, n_pts)
             d_bnd = d_bnd_spl(s_bl)
-            d_far = d_bnd + side * w_bike
+            d_far = d_bnd + side * w_bike_at(bike_lane, s_bl)
 
-            bnd_ll = _sd_to_latlon(s_bl, d_bnd, tck, unew, cum_dist,
-                                    x_offset, y_offset)
-            far_ll = _sd_to_latlon(s_bl, d_far, tck, unew, cum_dist,
-                                    x_offset, y_offset)
+            bnd_ll = _spline_xy_variable_offset_to_latlon(
+                tck, unew, cum_dist, s_bl, d_bnd, x_offset, y_offset)
+            far_ll = _spline_xy_variable_offset_to_latlon(
+                tck, unew, cum_dist, s_bl, d_far, x_offset, y_offset)
 
             layer["bike_bnd"]  = bnd_ll
             layer["bike_far"]  = far_ll
             layer["bike_band"] = bnd_ll + far_ll[::-1] + [bnd_ll[0]]
-            layer["w_bike"]    = float(w_bike)
+            layer["w_bike"]    = w_bike_label(bike_lane)
             layer["side"]      = int(side)
 
         layers.append(layer)
@@ -289,7 +245,7 @@ def generate_bikelane_debug_map(bike_df, segment_registry, geometry_store,
     vrects       = _build_vrect_shapes(traj_records)
     vrects_json  = json.dumps(vrects)
 
-    lon_all, lat_all = _to_wgs84.transform(
+    lon_all, lat_all = _PROJ_2056_TO_LONLAT.transform(
         bike_df['x_act_ekf'].values, bike_df['y_act_ekf'].values
     )
     center_lat  = float(np.mean(lat_all))
@@ -465,7 +421,7 @@ LAYERS.forEach(lyr=>{{
     L.polyline(lyr.bike_far, {{color:'#16a34a',weight:1.5,opacity:.8,dashArray:'5 3'}})
      .bindTooltip(`outer edge: ${{lyr.seg_key}}`).addTo(lgBikeBands);
     L.polyline(lyr.bike_bnd, {{color:'#22c55e',weight:2,opacity:.9}})
-     .bindTooltip(`inner boundary: ${{lyr.seg_key}} (side=${{lyr.side}}, w=${{lyr.w_bike}}m)`).addTo(lgBikeBands);
+     .bindTooltip(`inner boundary: ${{lyr.seg_key}} (side=${{lyr.side}}, w=${{lyr.w_bike}})`).addTo(lgBikeBands);
   }}
 
   // Centerline
@@ -651,7 +607,7 @@ const tC = [];
 tC.push({{x:tarr, y:spd,
   mode:'lines', line:{{color:'#94a3b8',width:2,dash:'dash'}},
   name:'|v| speed', legendgroup:'spd',
-  hovertemplate:'t=%{{x:.2f}}s  |v|=%{{y:.2f}} km/h<extra></extra>'}});
+  hovertemplate:'t=%{{x:.2f}}s  |v|=%{{y:.2f}} m/s<extra></extra>'}});
 // s_dot and d_dot per segment — only first segment contributes legend entry
 segsAll.forEach((seg,si)=>{{
   const idx=TRAJ.map((_,i)=>TRAJ[i].seg_id===seg?i:-1).filter(i=>i>=0);
@@ -660,11 +616,11 @@ segsAll.forEach((seg,si)=>{{
   tC.push({{x:idx.map(i=>tarr[i]), y:idx.map(i=>sdarr[i]),
     mode:'lines', line:{{color:col,width:1.8}},
     legendgroup:'sdot', showlegend:si===0, name:'ṡ s_dot',
-    hovertemplate:`${{seg}}<br>t=%{{x:.2f}}s  ṡ=%{{y:.2f}} km/h<extra></extra>`}});
+    hovertemplate:`${{seg}}<br>t=%{{x:.2f}}s  ṡ=%{{y:.2f}} m/s<extra></extra>`}});
   tC.push({{x:idx.map(i=>tarr[i]), y:idx.map(i=>ddarr[i]),
     mode:'lines', line:{{color:col,width:1.2,dash:'dot'}},
     legendgroup:'ddot', showlegend:si===0, name:'ḋ d_dot',
-    hovertemplate:`${{seg}}<br>t=%{{x:.2f}}s  ḋ=%{{y:.2f}} km/h<extra></extra>`}});
+    hovertemplate:`${{seg}}<br>t=%{{x:.2f}}s  ḋ=%{{y:.2f}} m/s<extra></extra>`}});
 }});
 // Unmatched
 const uiC=TRAJ.map((_,i)=>!TRAJ[i].seg_id?i:-1).filter(i=>i>=0);
@@ -681,7 +637,7 @@ tC.push({{x:[tarr[0]], y:[spd[0]], mode:'markers',
 
 const layoutC = Object.assign({{}}, bL, {{
   xaxis: Object.assign({{}}, bL.xaxis, {{title:{{text:'t [s]',font:{{size:10}}}}}}),
-  yaxis: Object.assign({{}}, bL.yaxis, {{title:{{text:'km/h',font:{{size:10}}}},zeroline:true}}),
+  yaxis: Object.assign({{}}, bL.yaxis, {{title:{{text:'m/s',font:{{size:10}}}},zeroline:true}}),
   shapes: shapesC,
   showlegend: true,
   legend: {{orientation:'h',x:0,y:-0.15,xanchor:'left',yanchor:'top',

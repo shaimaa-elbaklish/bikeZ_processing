@@ -30,12 +30,12 @@ from tools_kalman import calculate_kalman_filtered_trajectory
 BikeZ_Config = BikeZ_Config()
 
 # Specify Trajectory File
-date = BikeZ_Config.avail_dates[0]
+date = BikeZ_Config.avail_dates[-2]
 campaign = f"Zurich_2025{date[5:7]}" # June or September
 mode = BikeZ_Config.avail_modes[0] # Bike
 data_root = BikeZ_Config.data_root[campaign][mode]
 
-intersection, code = BikeZ_Config.avail_intersections[date][0]
+intersection, code = BikeZ_Config.avail_intersections[date][-2]
 # all_timeslots = BikeZ_Config.avail_timeslots[date][(intersection, code)]
 timeslot = BikeZ_Config.avail_timeslots[date][(intersection, code)][0] # 'AM2'
 
@@ -114,12 +114,13 @@ for veh_id, veh_df in df.groupby('veh_id'):
 # top2 = counts.nlargest(2)
 # turning bikes: 68, (missing) 14
 
-sel_bike_id = 137
+# sel_bike_id = 137
+sel_bike_id = 149
 bike_df = df[(df['veh_id'] == sel_bike_id)]
 bike_df = bike_df.sort_values(by='time', ascending=True)
 
 Qk = np.diag([1.0, 1.0, 1.0, 10.0]).astype(np.float64)   # covariance matrix of error of state
-Rk = np.diag([1.0, 1.0, 5.0, 10.0]).astype(np.float64)   # covariance matrix of error of output
+Rk = np.diag([1.0, 1.0, 2.0, 10.0]).astype(np.float64)   # covariance matrix of error of output
 
 import time
 start = time.perf_counter()
@@ -128,6 +129,56 @@ filtered_bike_df = calculate_kalman_filtered_trajectory(
 )
 end = time.perf_counter()
 print(f"Elapsed time: {end - start:.6f} seconds")
+
+
+bike_df = bike_df[(~bike_df['missing'])]
+fig, axs = plt.subplots(1, 2, figsize=(8, 4))
+axs[0].scatter(bike_df['x'], bike_df['y'], s=5, label='Original')
+axs[0].scatter(filtered_bike_df['x'], filtered_bike_df['y'], s=1, label='EKF')
+axs[0].scatter(bike_df['x'].iloc[0], bike_df['y'].iloc[0], s=30, label='Start', marker='o', color='black')
+axs[0].scatter(bike_df['x'].iloc[-1], bike_df['y'].iloc[-1], s=30, label='End', marker='x', color='red')
+axs[0].set_xlabel('X_2056 - X_ref [m]')
+axs[0].set_ylabel('Y_2056 - Y_ref [m]')
+axs[0].legend()
+
+axs[1].plot(bike_df['time'], bike_df['angle']*180/np.pi, label='Original')
+axs[1].plot(filtered_bike_df['time'], filtered_bike_df['angle']*180/np.pi, label='Current EKF', alpha=0.75)
+axs[1].set_xlabel('Time [s]')
+axs[1].set_ylabel('Heading Angle [deg]')
+axs[1].legend()
+axs[1].set_ylim([-180, 180])
+
+fig.tight_layout()
+
+
+# fig, axs = plt.subplots(1, 3, figsize=(12, 4))
+# start_time, end_time = 80, 82
+# zoom_bike_df = bike_df[(bike_df['time'] >= start_time) & (bike_df['time'] <= end_time)]
+# zoom_filt_bike_df = filtered_bike_df[(filtered_bike_df['time'] >= start_time) & (filtered_bike_df['time'] <= end_time)]
+# axs[0].plot(zoom_bike_df['x'], zoom_bike_df['y'], linewidth=1, label='Original')
+# axs[0].plot(zoom_filt_bike_df['x'], zoom_filt_bike_df['y'], linewidth=1, linestyle='dashed', label='EKF')
+# axs[0].scatter(zoom_bike_df['x'].iloc[0], zoom_bike_df['y'].iloc[0], s=30, label='Start', marker='o', color='black')
+# axs[0].scatter(zoom_bike_df['x'].iloc[-1], zoom_bike_df['y'].iloc[-1], s=30, label='End', marker='x', color='red')
+# axs[0].set_xlabel('X_2056 - X_ref [m]')
+# axs[0].set_ylabel('Y_2056 - Y_ref [m]')
+# axs[0].legend()
+
+# axs[1].plot(zoom_bike_df['time'], zoom_bike_df['x'], linewidth=1, label='x')
+# axs[1].plot(zoom_bike_df['time'], zoom_bike_df['y'], linewidth=1, label='y')
+# axs[1].set_xlabel('Time [s]')
+# axs[1].set_ylabel('X / Y [m]')
+# axs[1].legend()
+
+# axs[2].plot(zoom_bike_df['time'], zoom_bike_df['angle']*180/np.pi, label='Original')
+# axs[2].plot(zoom_filt_bike_df['time'], zoom_filt_bike_df['angle']*180/np.pi, label='Current EKF', alpha=0.75)
+# axs[2].set_xlabel('Time [s]')
+# axs[2].set_ylabel('Heading Angle [deg]')
+# axs[2].legend()
+# axs[2].set_ylim([-180, 180])
+
+# fig.tight_layout()
+
+sys.exit(1)
 
 # draw individual bicycle
 bike_df = bike_df[(~bike_df['missing'])]
