@@ -250,9 +250,9 @@ The following output columns are added.
 
 ### Overview
 
-<table>
+<table style="border: none; border-collapse: collapse;">
 <tr>
-<td>
+<td style="border: none; vertical-align: top;">
 The lane coordinate transform maps raw GPS trajectories from global EPSG:2056 `(x, y)` coordinates to road-aligned `(s, d)` coordinates at each intersection. The transform is built on three registries, constructed once per site using `tools_site_builder.py` and saved as a pickle file.
 
 - **`geometry_store`** : one entry per physical road axis. Stores the B-spline fit to the road centerline, total arc length, stop/yield line positions (`s_stop`, `s_yield`, `s_change`), intersection area polygons, and local coordinate offsets.
@@ -263,7 +263,7 @@ At runtime, `to_lane_coordinates` (in `tools_lane_coords_V5.py`) walks each traj
 
 **Segment key conventions:** lane segment keys follow `{Road}_{Direction}` (e.g. `LangstrS_NB`); turn segment keys follow `turn_{approach_seg}_2_{departure_seg}` (e.g. `turn_LangstrS_NB_2_LangstrN_NB`). All valid keys are listed in `segment_registry`.
 </td>
-<td width="500" align="center">
+<td width="500" align="center" style="border: none; vertical-align: top;">
   <img src="./assets/site_building_registry.png" alt="Schematic diagram of the registry map layers." width="400"><br>
   <em>Figure 2: Schematic diagram of the registry map layers.</em>
 </td>
