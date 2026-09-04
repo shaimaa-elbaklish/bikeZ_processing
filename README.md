@@ -255,11 +255,13 @@ The lane coordinate transform maps raw GPS trajectories from global EPSG:2056 `(
 <table style="border: none; border-collapse: collapse;">
 <tr>
 <td style="border: none; vertical-align: top;">
+
 - **`geometry_store`** : one entry per physical road axis. Stores the B-spline fit to the road centerline, total arc length, stop/yield line positions (`s_stop`, `s_yield`, `s_change`), intersection area polygons, and local coordinate offsets.
 - **`segment_registry`** : one entry per directed travel segment (e.g. `LangstrS_NB`, `turn_LangstrS_NB_2_LangstrN_NB`). Stores segment type (`lane` or `turn`), travel direction, lateral validity bounds (`d_left`, `d_right`), validity polygon, and mode (`shared`, `bike`, or `car`). Also, contains bike lane details (`bike_lane`), as well as car lane lateral bounds (`car_lane_d_bnd`).
 - **`movement_registry`** : one entry per observable movement through the intersection (e.g. `LangstrN_SB_2_LangstrS_SB`). Each entry is an ordered sequence of `(segment_key, role)` pairs: approach lane $\rightarrow$ turn $\rightarrow$ departure lane.
+
 </td>
-<td width="500" align="center" style="border: none; vertical-align: top;">
+<td width="400" align="center" style="border: none; vertical-align: top;">
   <img src="./assets/site_building_registry.png" alt="Schematic diagram of the registry map layers." width="400"><br>
   <em>Figure 2: Schematic diagram of the registry map layers.</em>
 </td>
