@@ -39,6 +39,7 @@ def human(n):
         n /= 1024
     return f"{n:.2f} TB"
 
+sys.exit(1)
 # #############################################################################
 # MAIN: Creating Zip Files for Upload
 # #############################################################################
@@ -114,42 +115,45 @@ for loc_num in locations_list:
                 
                 # copy to onedrive
                 if date[5:7] == '06':
-                    folder = f'June-{intersection}'
+                    folder = f'June-{intersection}-Location{loc_num}'
                 elif date[5:7] == '09':
-                    folder = f'Sep-{intersection}-{code}'
+                    folder = f'Sep-{intersection}-{code}-Location{loc_num}'
                 else:
                     print('Unrecognized date!')
                     sys.exit(1)
-                dest_dir = os.path.join(copy_dir_root, folder)
-                os.makedirs(dest_dir, exist_ok=True)
-
-                dest_path = os.path.join(dest_dir, filename)
-                shutil.copy2(parquet_path, dest_path)
-
-                folder_files[folder].append(dest_path)
+                
+                # copy if needed to copy_dir_path / folder
+                # dest_dir = os.path.join(copy_dir_root, folder)
+                # os.makedirs(dest_dir, exist_ok=True)
+                # dest_path = os.path.join(dest_dir, filename)
+                # shutil.copy2(parquet_path, dest_path)
+                # folder_files[folder].append(dest_path)
+                
+                # just record the source path and its arcname for later zipping
+                folder_files[folder].append((parquet_path, filename))
                 
     print(f'Done for location {loc_num}.')
-                
-# zip all parquets within each folder into a single archive per folder
+
+import py7zr
+
+# zip all parquets for each folder directly from source into a single archive per folder
 for folder, files in folder_files.items():
-    dest_dir = os.path.join(copy_dir_root, folder)
-    zip_path = os.path.join(copy_dir_root, f"{folder}.zip")
+    archive_path = os.path.join(copy_dir_root, f"{folder}.7z")
+    total_parquet_size = sum(os.path.getsize(f) for f, _ in files)
 
-    # total size of the source parquet files before zipping
-    total_parquet_size = sum(os.path.getsize(f) for f in files)
+    # LZMA2 filter, max-ish compression level (0-9 preset scale mapped internally)
+    filters = [{'id': py7zr.FILTER_LZMA2, 'preset': 9}]
 
-    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
-        for f in files:
-            zf.write(f, arcname=os.path.basename(f))
+    with py7zr.SevenZipFile(archive_path, 'w', filters=filters) as archive:
+        for parquet_path, filename in files:
+            archive.write(parquet_path, arcname=filename)
 
-    zip_size = os.path.getsize(zip_path)
-    ratio = (1 - zip_size / total_parquet_size) * 100 if total_parquet_size else 0
-
-    print(f"Zipped {len(files)} files into {zip_path}")
-    print(f"  Parquet total size: {total_parquet_size / (1024**2):.2f} MB")
-    print(f"  Zip size:           {zip_size / (1024**2):.2f} MB")
+    archive_size = os.path.getsize(archive_path)
+    ratio = (1 - archive_size / total_parquet_size) * 100 if total_parquet_size else 0
+    print(f"7z'd {len(files)} files into {archive_path}")
+    print(f"  Parquet total size: {human(total_parquet_size)}")
+    print(f"  7z size:            {human(archive_size)}")
     print(f"  Space saved:        {ratio:.1f}%")
-
-
+    print()
 
 
